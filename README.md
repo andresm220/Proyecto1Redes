@@ -99,8 +99,8 @@ python -m pytest -q
 | Phase | Scope | Status |
 |---|---|---|
 | F0 | Scaffolding, dependencies, configuration | Done |
-| F1 | `jsonrpc.py` and its tests | Pending |
-| F2 | `stdio_transport.py` and `MCPClient` | Pending |
+| F1 | `jsonrpc.py` and its tests | Done |
+| F2 | `stdio_transport.py` and `MCPClient` | Done |
 | F3 | The `netops` server over stdio | Pending |
 | F4 | Minimal host and agentic loop | Pending |
 | F5 | `SPEC.md`, README, Claude Desktop validation | Pending |
