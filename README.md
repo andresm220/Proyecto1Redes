@@ -101,6 +101,6 @@ python -m pytest -q
 | F0 | Scaffolding, dependencies, configuration | Done |
 | F1 | `jsonrpc.py` and its tests | Done |
 | F2 | `stdio_transport.py` and `MCPClient` | Done |
-| F3 | The `netops` server over stdio | Pending |
+| F3 | The `netops` server over stdio | Done |
 | F4 | Minimal host and agentic loop | Pending |
 | F5 | `SPEC.md`, README, Claude Desktop validation | Pending |

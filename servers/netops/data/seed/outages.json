@@ -1,0 +1,33 @@
+[
+  {
+    "outage_id": "OUT-2026-013",
+    "region": "peten",
+    "status": "active",
+    "cause": "Corte de fibra troncal por trabajos viales sobre la ruta a Flores",
+    "started_at": "2026-08-19T04:20:00-06:00",
+    "eta": "2026-08-19T18:00:00-06:00",
+    "affected_accounts": 1840,
+    "affected_services": ["internet", "iptv"]
+  },
+  {
+    "outage_id": "OUT-2026-014",
+    "region": "guatemala",
+    "status": "active",
+    "cause": "Mantenimiento programado del nodo Zona 10",
+    "started_at": "2026-08-19T01:00:00-06:00",
+    "eta": "2026-08-19T05:00:00-06:00",
+    "affected_accounts": 320,
+    "affected_services": ["internet"]
+  },
+  {
+    "outage_id": "OUT-2026-011",
+    "region": "quetzaltenango",
+    "status": "resolved",
+    "cause": "Falla de energía en el nodo Xelajú Centro",
+    "started_at": "2026-08-17T22:10:00-06:00",
+    "eta": "2026-08-18T02:00:00-06:00",
+    "resolved_at": "2026-08-18T01:35:00-06:00",
+    "affected_accounts": 610,
+    "affected_services": ["internet", "voip"]
+  }
+]

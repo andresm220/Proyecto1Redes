@@ -1,0 +1,63 @@
+[
+  {
+    "account_id": "GT-10231",
+    "phone": "+502 5555-0101",
+    "holder": "María Fernanda Ochoa",
+    "plan": "Fibra 300",
+    "plan_speed_mbps": 300,
+    "status": "active",
+    "technology": "fiber",
+    "region": "guatemala",
+    "service_address": "12 Avenida 5-43, Zona 10, Ciudad de Guatemala",
+    "installed_on": "2024-03-11"
+  },
+  {
+    "account_id": "GT-10232",
+    "phone": "+502 5555-0102",
+    "holder": "Luis Roberto Xitumul",
+    "plan": "Fibra 100",
+    "plan_speed_mbps": 100,
+    "status": "suspended",
+    "technology": "fiber",
+    "region": "quetzaltenango",
+    "service_address": "4a Calle 12-08, Zona 3, Quetzaltenango",
+    "installed_on": "2023-08-02",
+    "suspension_reason": "Saldo vencido de 2 ciclos de facturación"
+  },
+  {
+    "account_id": "GT-10233",
+    "phone": "+502 5555-0103",
+    "holder": "Ana Lucía Peralta",
+    "plan": "Cable 50",
+    "plan_speed_mbps": 50,
+    "status": "active",
+    "technology": "coaxial",
+    "region": "peten",
+    "service_address": "Barrio El Centro, Calle Principal, Flores, Petén",
+    "installed_on": "2022-11-27"
+  },
+  {
+    "account_id": "GT-10234",
+    "phone": "+502 5555-0104",
+    "holder": "Jorge Estuardo Ramírez",
+    "plan": "Fibra 500",
+    "plan_speed_mbps": 500,
+    "status": "active",
+    "technology": "fiber",
+    "region": "escuintla",
+    "service_address": "Km 58.5 Carretera al Pacífico, Escuintla",
+    "installed_on": "2025-01-19"
+  },
+  {
+    "account_id": "GT-10235",
+    "phone": "+502 5555-0105",
+    "holder": "Silvia Marleny Cotí",
+    "plan": "Fibra 300",
+    "plan_speed_mbps": 300,
+    "status": "pending_installation",
+    "technology": "fiber",
+    "region": "guatemala",
+    "service_address": "6a Avenida 9-21, Zona 15, Ciudad de Guatemala",
+    "installed_on": null
+  }
+]
