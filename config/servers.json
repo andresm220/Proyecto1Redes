@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "netops": {
+      "command": "python",
+      "args": ["-m", "servers.netops.stdio_server"],
+      "env": {}
+    }
+  }
+}
