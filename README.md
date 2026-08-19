@@ -76,11 +76,17 @@ Commands:
 | `/servers` | List the configured MCP servers and their connection state |
 | `/tools` | List every tool exposed by the connected servers |
 | `/call <tool> <json>` | Invoke one tool directly, bypassing the LLM |
+| `/verbose` | Toggle the JSON-RPC message trace (on by default) |
+| `/reset` | Forget the conversation so far |
 | `/help` | Show the command table |
 | `/quit` | Close every server and exit |
 
 Anything that does not start with `/` is sent to the model, which may call the
-servers' tools to answer.
+servers' tools to answer. Tools are namespaced as `<server>__<tool>`, so
+`/call netops__lookup_account {"account_id": "GT-10231"}` invokes `lookup_account`
+on the `netops` server.
+
+The assistant needs `ANTHROPIC_API_KEY` and a funded account; `/call` does not.
 
 ## Tests
 
@@ -102,5 +108,5 @@ python -m pytest -q
 | F1 | `jsonrpc.py` and its tests | Done |
 | F2 | `stdio_transport.py` and `MCPClient` | Done |
 | F3 | The `netops` server over stdio | Done |
-| F4 | Minimal host and agentic loop | Pending |
+| F4 | Minimal host and agentic loop | Done (not yet run against a funded account) |
 | F5 | `SPEC.md`, README, Claude Desktop validation | Pending |

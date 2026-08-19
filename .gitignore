@@ -21,6 +21,9 @@ htmlcov/
 # Server runtime state (seed data IS versioned; mutable state is not)
 servers/netops/data/state.json
 
+# Tooling config, not part of the deliverable
+.claude/
+
 # Editors / OS
 .vscode/
 .idea/

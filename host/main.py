@@ -17,11 +17,14 @@ from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
 
+from host.agent import Agent
 from host.config import ConfigError, HostConfig, load_config
+from host.llm.anthropic_client import AnthropicClient, LLMError
 from host.mcp import jsonrpc
 from host.mcp.client import McpError
 from host.mcp.registry import ServerRegistry, ToolNotFoundError
 from host.mcp.transport import TransportError
+from host.session import Session, build_system_prompt
 
 console = Console()
 
@@ -32,6 +35,7 @@ HELP_ROWS = [
     ("/tools", "List every tool exposed by the connected servers"),
     ("/call <tool> <json>", "Invoke one tool directly, bypassing the LLM"),
     ("/verbose", "Toggle the JSON-RPC message trace"),
+    ("/reset", "Forget the conversation so far"),
     ("/help", "Show this table"),
     ("/quit", "Close every server and exit"),
 ]
@@ -48,6 +52,8 @@ class Cli:
             on_message=self.log_message,
             on_stderr=self.log_stderr,
         )
+        self.session: Session | None = None
+        self.agent: Agent | None = None
 
     # -- logging -----------------------------------------------------------
 
@@ -159,6 +165,60 @@ class Cli:
             else:
                 console.print(escape(json.dumps(block, ensure_ascii=False, indent=2)))
 
+    # -- the agentic loop --------------------------------------------------
+
+    def build_agent(self) -> None:
+        """Wire the model to the connected servers. Needs a key and a server."""
+        if not self.config.has_api_key or not self.registry.clients:
+            return
+        instructions = {
+            name: client.instructions for name, client in self.registry.clients.items()
+        }
+        self.session = Session(build_system_prompt(instructions))
+        self.agent = Agent(
+            llm=AnthropicClient(api_key=self.config.api_key or "", model=self.config.model),
+            registry=self.registry,
+            session=self.session,
+            on_event=self.on_agent_event,
+        )
+
+    def on_agent_event(self, kind: str, payload: dict[str, Any]) -> None:
+        if kind == "tool_call":
+            arguments = json.dumps(payload["arguments"], ensure_ascii=False)
+            console.print(
+                f"[dim]  calling[/dim] [bold]{escape(payload['name'])}[/bold] "
+                f"[dim]{escape(arguments)}[/dim]",
+                highlight=False,
+                soft_wrap=True,
+            )
+        elif kind == "tool_result" and payload["is_error"]:
+            console.print(f"[yellow]  tool reported an error[/yellow]", highlight=False)
+        elif kind == "max_iterations":
+            console.print(
+                f"[yellow]  stopped at the {payload['limit']}-iteration cap[/yellow]"
+            )
+
+    def ask(self, question: str) -> None:
+        if self.agent is None:
+            if not self.config.has_api_key:
+                console.print(
+                    "[yellow]ANTHROPIC_API_KEY is not set. Copy .env.example to .env and add "
+                    "your key, or use /call to invoke tools directly.[/yellow]"
+                )
+            else:
+                console.print("[yellow]No server is connected, so there are no tools.[/yellow]")
+            return
+        try:
+            answer = self.agent.run_turn(question)
+        except LLMError as exc:
+            console.print(f"[red]{escape(str(exc))}[/red]")
+            return
+        except Exception as exc:  # noqa: BLE001 - one bad turn must not end the session
+            console.print(f"[red]{type(exc).__name__}:[/red] {escape(str(exc))}")
+            return
+        if answer:
+            console.print(escape(answer), highlight=False)
+
     def handle_command(self, line: str) -> bool:
         parts = line.split(maxsplit=1)
         command = parts[0].lower()
@@ -175,6 +235,10 @@ class Cli:
         elif command == "/verbose":
             self.verbose = not self.verbose
             console.print(f"JSON-RPC trace {'on' if self.verbose else 'off'}.")
+        elif command == "/reset":
+            if self.session is not None:
+                self.session.clear()
+            console.print("Conversation cleared.")
         elif command == "/call":
             if not argument:
                 console.print("[red]Usage: /call <tool> <json-arguments>[/red]")
@@ -189,6 +253,7 @@ class Cli:
     def run(self) -> int:
         console.print(f"[bold]{BANNER}[/bold]")
         self.registry.connect_all()
+        self.build_agent()
 
         connected = len(self.registry.clients)
         console.print(
@@ -197,10 +262,15 @@ class Cli:
         )
         for name, reason in self.registry.failures.items():
             console.print(f"[red]{escape(name)}: {escape(reason)}[/red]")
-        if not self.config.has_api_key:
+        if self.agent is not None:
+            console.print(
+                f"Model [cyan]{escape(self.config.model)}[/cyan] ready. "
+                "Ask a question, or use /call to invoke a tool directly."
+            )
+        elif not self.config.has_api_key:
             console.print(
                 "[yellow]ANTHROPIC_API_KEY is not set - copy .env.example to .env "
-                "before running the agentic loop (F4).[/yellow]"
+                "to enable the assistant. /call works without it.[/yellow]"
             )
 
         while True:
@@ -217,7 +287,7 @@ class Cli:
                 if not self.handle_command(line):
                     break
             else:
-                console.print("[yellow]The agentic loop lands in F4. Use /call for now.[/yellow]")
+                self.ask(line)
 
         return 0
 
