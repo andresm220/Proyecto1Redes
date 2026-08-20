@@ -197,8 +197,13 @@ def decode(line: str) -> dict[str, Any]:
     """Parse one NDJSON line into a raw message object.
 
     Raises ParseError for anything that is not a JSON object.
+
+    A leading byte order mark is stripped rather than rejected. JSON is defined
+    as UTF-8 and a BOM is redundant, but several tools prepend one when writing
+    a stream - PowerShell does it on every pipe - and RFC 8259 lets a parser
+    ignore it. Failing on that would turn a cosmetic quirk into a dead session.
     """
-    text = line.strip()
+    text = line.strip().lstrip("\ufeff").strip()
     if not text:
         raise ParseError("empty line")
     try:

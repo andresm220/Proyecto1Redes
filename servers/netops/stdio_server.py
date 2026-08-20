@@ -36,6 +36,10 @@ def log(text: str) -> None:
 class NetopsStdioServer:
     def __init__(self, store: NetopsStore | None = None) -> None:
         self.store = store or NetopsStore()
+        # Both halves of the handshake must happen, in order. Tracking only the
+        # notification would let a client skip initialize entirely and still be
+        # treated as initialized.
+        self.initialize_received = False
         self.initialized = False
 
     # -- methods -----------------------------------------------------------
@@ -43,6 +47,7 @@ class NetopsStdioServer:
     def handle_initialize(self, params: dict[str, Any]) -> dict[str, Any]:
         client = params.get("clientInfo", {})
         log(f"initialize from {client.get('name', '?')} {client.get('version', '?')}")
+        self.initialize_received = True
         return {
             "protocolVersion": core.PROTOCOL_VERSION,
             "capabilities": {"tools": {"listChanged": False}},
@@ -81,6 +86,10 @@ class NetopsStdioServer:
     def handle_notification(self, notification: jsonrpc.Notification) -> None:
         # A notification is never answered, whatever it is.
         if notification.method == "notifications/initialized":
+            if not self.initialize_received:
+                # The notification confirms a handshake; it cannot start one.
+                log("ignoring notifications/initialized: initialize never completed")
+                return
             self.initialized = True
             log("handshake complete")
         else:

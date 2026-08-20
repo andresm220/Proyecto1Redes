@@ -94,6 +94,47 @@ The assistant needs `ANTHROPIC_API_KEY` and a funded account; `/call` does not.
 python -m pytest -q
 ```
 
+The suite launches the real server as a subprocess and speaks to it over real
+pipes; nothing about the transport is mocked.
+
+### Conformance check
+
+`tools/conformance_check.py` is an independent client: standard library only,
+raw `json`, and no import from `host/`. It plays the part a third-party host
+plays — launch, handshake, list, call, shut down — and it needs no dependencies,
+so it runs on a bare Python:
+
+```
+python tools/conformance_check.py
+```
+
+Because it shares no code with the host, a bug in our own encoder cannot cancel
+itself out and let the check pass anyway.
+
+## Connecting Claude Desktop
+
+The server is a normal MCP server, so any MCP host can drive it. For Claude
+Desktop, add this to `claude_desktop_config.json`
+(`%APPDATA%\Claude\claude_desktop_config.json` on Windows,
+`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS) and
+restart the app:
+
+```json
+{
+  "mcpServers": {
+    "netops": {
+      "command": "python",
+      "args": ["-m", "servers.netops.stdio_server"],
+      "cwd": "C:\\Users\\aame2\\OneDrive\\Documentos\\Proyecto1Redes"
+    }
+  }
+}
+```
+
+`cwd` must be the repository root so the module resolves. The server needs no
+third-party packages, so a system Python works; point `command` at
+`.venv\Scripts\python.exe` if you would rather use the virtual environment.
+
 ## Documentation
 
 - `servers/netops/SPEC.md` — the netops server specification: tools, schemas,
@@ -109,4 +150,10 @@ python -m pytest -q
 | F2 | `stdio_transport.py` and `MCPClient` | Done |
 | F3 | The `netops` server over stdio | Done |
 | F4 | Minimal host and agentic loop | Done (not yet run against a funded account) |
-| F5 | `SPEC.md`, README, Claude Desktop validation | Pending |
+| F5 | `SPEC.md`, README, conformance check | Done (Claude Desktop not yet run) |
+
+Two items remain outside what the code can prove on its own: the agentic loop
+has not been exercised against a funded Anthropic account, and the server has
+not been driven by Claude Desktop, which is not installed on the development
+machine. `tools/conformance_check.py` covers the same ground a third-party host
+would, but it is not the same evidence.
