@@ -610,27 +610,62 @@ This server has been verified this way.
 
 ### 7.5 Connecting from Claude Desktop
 
-Add the entry below to `claude_desktop_config.json`, which lives at
-`%APPDATA%\Claude\claude_desktop_config.json` on Windows and
-`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS.
-Restart Claude Desktop afterwards.
+Add an `mcpServers` entry to `claude_desktop_config.json`. Merge it into the file
+rather than replacing it — the file also holds the application's own preferences.
 
 ```json
 {
   "mcpServers": {
     "netops": {
-      "command": "python",
+      "command": "C:\\Python312\\python.exe",
       "args": ["-m", "servers.netops.stdio_server"],
-      "cwd": "<absolute path to this repository>"
+      "env": {
+        "PYTHONPATH": "<absolute path to this repository>",
+        "PYTHONIOENCODING": "utf-8"
+      }
     }
   }
 }
 ```
 
-`cwd` must be the repository root so that `servers.netops.stdio_server` resolves
-as a module. If the repository's virtual environment is in use, point `command`
-at that interpreter (`<repo>\.venv\Scripts\python.exe`) rather than at a bare
-`python`.
+`PYTHONPATH` must be the repository root so that `servers.netops.stdio_server`
+resolves as a module. This is used in preference to a `cwd` key because it works
+regardless of the directory the host happens to launch the server from. The
+server's data directory is resolved relative to its own module file, not the
+working directory, so it is unaffected either way.
+
+The server needs no third-party packages, so any Python 3.11+ interpreter works;
+point `command` at `<repo>\.venv\Scripts\python.exe` to use the project's
+virtual environment instead.
+
+**Where the file lives.** On macOS it is
+`~/Library/Application Support/Claude/claude_desktop_config.json`. On Windows the
+answer depends on how the application was installed:
+
+| Installation | Path |
+|---|---|
+| Standard installer | `%APPDATA%\Claude\claude_desktop_config.json` |
+| Microsoft Store (MSIX) | `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\claude_desktop_config.json` |
+
+The Store build virtualises `%APPDATA%`, so writing to the standard path has no
+effect there.
+
+**Restarting.** Closing the window does not reload the configuration; the
+application stays resident in the system tray. Launching it again while the
+original instance lives produces `Not main instance, returning early from app
+ready` in `logs\main.log` and changes nothing. Quit from the tray icon, or end
+every `Claude.exe` process, before expecting a configuration change to apply.
+
+**Verifying.** `logs\main.log` records the negotiation, and
+`logs\mcp-server-netops.log` captures the server's own stderr. A successful
+connection looks like this:
+
+```
+[LocalMcpServerManager] netops negotiated protocol version: 2025-11-25
+[LocalMcpServerManager] Connected to netops (7 tools)
+```
+
+This server has been verified this way against Claude Desktop 1.32885.1.0.
 
 ### 7.6 Writing your own client
 

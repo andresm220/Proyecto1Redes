@@ -154,21 +154,47 @@ third-party packages, so a system Python works; point `command` at
 
 ### Third-party validation
 
-The server has been connected successfully from **Claude Code**, an MCP host
-written independently of this repository:
+The server has been connected successfully from two MCP hosts written
+independently of this repository.
+
+**Claude Desktop** (1.32885.1.0) negotiates the protocol and discovers all seven
+tools. From its own log:
+
+```
+[LocalMcpServerManager] netops negotiated protocol version: 2025-11-25
+[LocalMcpServerManager] Connected to netops (7 tools)
+[localMcpBridge] announcing netops: 7 tool(s)
+```
+
+And from the server's side of the same exchange:
+
+```
+[netops] listening on stdio, protocol 2025-11-25
+[netops] initialize from claude-ai 0.1.0
+[netops] handshake complete
+```
+
+**Claude Code** connects the same way:
 
 ```
 $ claude mcp get netops
 netops:
-  Scope: Local config (private to you in this project)
   Status: ✔ Connected
   Type: stdio
-  Command: C:\Python312\python.exe
-  Args: -m servers.netops.stdio_server
 ```
 
-A production host completing the handshake against a protocol implementation
-written by hand is the strongest conformance evidence available here.
+A production host completing the handshake and listing the tools against a
+protocol implementation written by hand is the strongest conformance evidence
+available here.
+
+> **Windows note.** The Microsoft Store build of Claude Desktop virtualises
+> `%APPDATA%`, so its configuration is **not** at `%APPDATA%\Claude\`. The file
+> it actually reads is
+> `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\claude_desktop_config.json`.
+> Closing the window does not reload it either — the app stays resident, and a
+> second launch logs `Not main instance, returning early` and exits. Quit from
+> the tray, or end every `Claude.exe` process, before expecting a config change
+> to apply.
 
 One item still stands open: the agentic loop in `host/agent.py` has not been
 exercised against a funded Anthropic account. The loop is covered by tests that
