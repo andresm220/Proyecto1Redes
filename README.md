@@ -150,10 +150,27 @@ third-party packages, so a system Python works; point `command` at
 | F2 | `stdio_transport.py` and `MCPClient` | Done |
 | F3 | The `netops` server over stdio | Done |
 | F4 | Minimal host and agentic loop | Done (not yet run against a funded account) |
-| F5 | `SPEC.md`, README, conformance check | Done (Claude Desktop not yet run) |
+| F5 | `SPEC.md`, README, conformance check | Done |
 
-Two items remain outside what the code can prove on its own: the agentic loop
-has not been exercised against a funded Anthropic account, and the server has
-not been driven by Claude Desktop, which is not installed on the development
-machine. `tools/conformance_check.py` covers the same ground a third-party host
-would, but it is not the same evidence.
+### Third-party validation
+
+The server has been connected successfully from **Claude Code**, an MCP host
+written independently of this repository:
+
+```
+$ claude mcp get netops
+netops:
+  Scope: Local config (private to you in this project)
+  Status: ✔ Connected
+  Type: stdio
+  Command: C:\Python312\python.exe
+  Args: -m servers.netops.stdio_server
+```
+
+A production host completing the handshake against a protocol implementation
+written by hand is the strongest conformance evidence available here.
+
+One item still stands open: the agentic loop in `host/agent.py` has not been
+exercised against a funded Anthropic account. The loop is covered by tests that
+drive it with a scripted model against the real servers, but no live model has
+chosen a tool on its own.

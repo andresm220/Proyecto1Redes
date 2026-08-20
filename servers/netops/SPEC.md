@@ -592,7 +592,23 @@ Then `python -m host.main`, and:
 
 The host namespaces tools as `<server>__<tool>`.
 
-### 7.4 Connecting from Claude Desktop
+### 7.4 Connecting from Claude Code
+
+```
+claude mcp add netops -- python -m servers.netops.stdio_server
+claude mcp get netops
+```
+
+Run both from the repository root: Claude Code launches the server with the
+working directory it was itself started in, so `servers.netops.stdio_server`
+resolves without any extra configuration. `claude mcp get` performs a health
+check — it starts the server and completes the handshake — and reports
+`Status: ✔ Connected` on success. Remove it again with
+`claude mcp remove netops`.
+
+This server has been verified this way.
+
+### 7.5 Connecting from Claude Desktop
 
 Add the entry below to `claude_desktop_config.json`, which lives at
 `%APPDATA%\Claude\claude_desktop_config.json` on Windows and
@@ -616,7 +632,7 @@ as a module. If the repository's virtual environment is in use, point `command`
 at that interpreter (`<repo>\.venv\Scripts\python.exe`) rather than at a bare
 `python`.
 
-### 7.5 Writing your own client
+### 7.6 Writing your own client
 
 1. Launch the server as a subprocess with pipes on stdin and stdout. Force
    UTF-8 on the child (`PYTHONIOENCODING=utf-8`), and set the working directory
@@ -629,7 +645,7 @@ at that interpreter (`<repo>\.venv\Scripts\python.exe`) rather than at a bare
 5. Read `stderr` on a separate thread and never parse it as protocol.
 6. To shut down, close the server's stdin and wait for it to exit.
 
-### 7.6 Data directory
+### 7.7 Data directory
 
 The server reads its seed from `servers/netops/data/seed/` and writes state to
 `servers/netops/data/state.json`. Set `NETOPS_DATA_DIR` to relocate both — the
