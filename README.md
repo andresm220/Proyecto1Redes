@@ -171,7 +171,8 @@ third-party packages, so a system Python works; point `command` at
 
 - `servers/netops/SPEC.md` — the netops server specification: tools, schemas,
   raw request/response examples, and error codes
-- `docs/DESIGN.md` — design decisions and their rationale
+- `docs/reporte-avance.pdf` — the partial-delivery report submitted for the
+  course, in Spanish, with its evidence screenshots under `docs/img/`
 
 ## Build status
 
