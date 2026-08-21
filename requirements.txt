@@ -2,6 +2,7 @@
 # stdio transport are implemented by hand under host/mcp/ and servers/netops/.
 # The anthropic package is the LLM API client, not an MCP library.
 anthropic>=0.124.0
+httpx>=0.28.1
 python-dotenv>=1.2.3
 rich>=15.0.0
 pytest>=9.1.1

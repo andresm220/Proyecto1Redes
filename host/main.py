@@ -19,7 +19,9 @@ from rich.table import Table
 
 from host.agent import Agent
 from host.config import ConfigError, HostConfig, load_config
-from host.llm.anthropic_client import AnthropicClient, LLMError
+from host.llm.anthropic_client import AnthropicClient
+from host.llm.base import LLMClient, LLMError
+from host.llm.openai_compatible import OpenAICompatibleClient
 from host.mcp import jsonrpc
 from host.mcp.client import McpError
 from host.mcp.registry import ServerRegistry, ToolNotFoundError
@@ -167,16 +169,34 @@ class Cli:
 
     # -- the agentic loop --------------------------------------------------
 
+    def build_llm(self) -> LLMClient:
+        """Pick the adapter for the configured provider.
+
+        Everything except Anthropic speaks the OpenAI dialect, so one adapter
+        covers Groq, OpenRouter and any local runtime.
+        """
+        llm = self.config.llm
+        if llm.is_openai_compatible:
+            return OpenAICompatibleClient(
+                api_key=llm.api_key or "",
+                model=llm.model,
+                base_url=llm.base_url or "",
+                on_retry=lambda delay, reason: console.print(
+                    f"[yellow]  {escape(reason)}[/yellow]"
+                ),
+            )
+        return AnthropicClient(api_key=llm.api_key or "", model=llm.model)
+
     def build_agent(self) -> None:
-        """Wire the model to the connected servers. Needs a key and a server."""
-        if not self.config.has_api_key or not self.registry.clients:
+        """Wire the model to the connected servers. Needs a backend and a server."""
+        if not self.config.llm.is_usable or not self.registry.clients:
             return
         instructions = {
             name: client.instructions for name, client in self.registry.clients.items()
         }
         self.session = Session(build_system_prompt(instructions))
         self.agent = Agent(
-            llm=AnthropicClient(api_key=self.config.api_key or "", model=self.config.model),
+            llm=self.build_llm(),
             registry=self.registry,
             session=self.session,
             on_event=self.on_agent_event,
@@ -262,15 +282,17 @@ class Cli:
         )
         for name, reason in self.registry.failures.items():
             console.print(f"[red]{escape(name)}: {escape(reason)}[/red]")
+        llm = self.config.llm
         if self.agent is not None:
             console.print(
-                f"Model [cyan]{escape(self.config.model)}[/cyan] ready. "
+                f"Model [cyan]{escape(llm.model)}[/cyan] via "
+                f"[cyan]{escape(llm.provider)}[/cyan] ready. "
                 "Ask a question, or use /call to invoke a tool directly."
             )
-        elif not self.config.has_api_key:
+        elif not llm.is_usable:
             console.print(
-                "[yellow]ANTHROPIC_API_KEY is not set - copy .env.example to .env "
-                "to enable the assistant. /call works without it.[/yellow]"
+                f"[yellow]Assistant disabled: {escape(llm.why_unusable())}. "
+                "See .env.example. /call works without it.[/yellow]"
             )
 
         while True:

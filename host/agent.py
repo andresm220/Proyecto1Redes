@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from typing import Any, Callable
 
-from host.llm.anthropic_client import LLMClient, mcp_tools_to_anthropic
+from host.llm.base import LLMClient
 from host.mcp.client import McpError
 from host.mcp.registry import ServerRegistry, ToolNotFoundError
 from host.mcp.transport import TransportError
@@ -101,7 +101,9 @@ class Agent:
     def run_turn(self, user_text: str) -> str:
         """Send one user message and run until the model stops calling tools."""
         self.session.add_user_text(user_text)
-        tools = mcp_tools_to_anthropic(self.registry.tools)
+        # Our own descriptors: each client translates them to its provider's
+        # format, so the loop stays free of any vendor's shape.
+        tools = self.registry.tools
         answer = ""
 
         for iteration in range(1, self.max_iterations + 1):

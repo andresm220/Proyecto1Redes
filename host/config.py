@@ -16,7 +16,17 @@ from dotenv import load_dotenv
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SERVERS_CONFIG = PROJECT_ROOT / "config" / "servers.json"
-DEFAULT_MODEL = "claude-haiku-4-5-20251001"
+DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"
+
+# Providers that speak OpenAI's /chat/completions, and where they live.
+OPENAI_COMPATIBLE_PRESETS = {
+    "groq": "https://api.groq.com/openai/v1",
+    "openrouter": "https://openrouter.ai/api/v1",
+    "ollama": "http://localhost:11434/v1",
+    "lmstudio": "http://localhost:1234/v1",
+}
+# A local runtime authenticates nobody, so a missing key is not a misconfiguration.
+KEYLESS_PROVIDERS = {"ollama", "lmstudio"}
 
 
 class ConfigError(Exception):
@@ -34,14 +44,48 @@ class ServerConfig:
 
 
 @dataclass(frozen=True)
-class HostConfig:
-    servers: dict[str, ServerConfig]
-    api_key: str | None
+class LLMConfig:
+    """Which model backend the agentic loop should use, and how to reach it."""
+
+    provider: str
     model: str
+    api_key: str | None = None
+    base_url: str | None = None
 
     @property
-    def has_api_key(self) -> bool:
+    def is_openai_compatible(self) -> bool:
+        return self.provider != "anthropic"
+
+    @property
+    def is_usable(self) -> bool:
+        """Enough configuration to attempt a call."""
+        if not self.model:
+            return False
+        if self.provider in KEYLESS_PROVIDERS:
+            return bool(self.base_url)
+        if self.is_openai_compatible:
+            return bool(self.api_key and self.base_url)
         return bool(self.api_key)
+
+    def why_unusable(self) -> str:
+        """What the operator has to fix, named precisely."""
+        if self.provider in KEYLESS_PROVIDERS:
+            if not self.base_url:
+                return f"LLM_BASE_URL is not set for provider {self.provider!r}"
+        elif not self.api_key:
+            variable = "ANTHROPIC_API_KEY" if self.provider == "anthropic" else "the provider's API key"
+            return f"{variable} is not set"
+        if self.is_openai_compatible and not self.base_url:
+            return f"LLM_BASE_URL is not set for provider {self.provider!r}"
+        if not self.model:
+            return f"no model configured for provider {self.provider!r}"
+        return ""
+
+
+@dataclass(frozen=True)
+class HostConfig:
+    servers: dict[str, ServerConfig]
+    llm: LLMConfig
 
 
 def load_servers(path: Path | None = None) -> dict[str, ServerConfig]:
@@ -84,11 +128,38 @@ def load_servers(path: Path | None = None) -> dict[str, ServerConfig]:
     return servers
 
 
+def load_llm() -> LLMConfig:
+    """Resolve the model backend from the environment.
+
+    Each provider reads its own variables so several can sit in .env at once and
+    switching is a one-line change to LLM_PROVIDER.
+    """
+    provider = (os.environ.get("LLM_PROVIDER") or "anthropic").strip().lower()
+
+    if provider == "anthropic":
+        return LLMConfig(
+            provider=provider,
+            model=os.environ.get("ANTHROPIC_MODEL") or DEFAULT_ANTHROPIC_MODEL,
+            api_key=os.environ.get("ANTHROPIC_API_KEY") or None,
+        )
+
+    # Every other provider speaks the OpenAI dialect; only the address differs.
+    prefix = provider.upper()
+    return LLMConfig(
+        provider=provider,
+        model=os.environ.get(f"{prefix}_MODEL") or os.environ.get("LLM_MODEL") or "",
+        api_key=(
+            os.environ.get(f"{prefix}_API_KEY") or os.environ.get("LLM_API_KEY") or None
+        ),
+        base_url=(
+            os.environ.get(f"{prefix}_BASE_URL")
+            or os.environ.get("LLM_BASE_URL")
+            or OPENAI_COMPATIBLE_PRESETS.get(provider)
+        ),
+    )
+
+
 def load_config(path: Path | None = None) -> HostConfig:
     """Load .env plus the server declarations."""
     load_dotenv(PROJECT_ROOT / ".env")
-    return HostConfig(
-        servers=load_servers(path),
-        api_key=os.environ.get("ANTHROPIC_API_KEY") or None,
-        model=os.environ.get("ANTHROPIC_MODEL") or DEFAULT_MODEL,
-    )
+    return HostConfig(servers=load_servers(path), llm=load_llm())

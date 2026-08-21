@@ -7,22 +7,14 @@ drive the agent loop with a scripted client and no API key.
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Any
 
 import anthropic
 
+from host.llm.base import LLMError
 from host.mcp.registry import RegisteredTool
 
 DEFAULT_MAX_TOKENS = 16000
-
-
-class LLMError(Exception):
-    """A model call failed, described in terms the operator can act on.
-
-    The SDK's own errors are accurate but unhelpful at a prompt - "credit
-    balance is too low" arrives wrapped in a raw 400 body. Translating here
-    also keeps the Anthropic SDK from leaking into the CLI.
-    """
 
 
 def mcp_tool_to_anthropic(tool: RegisteredTool) -> dict[str, Any]:
@@ -44,25 +36,6 @@ def mcp_tools_to_anthropic(tools: list[RegisteredTool]) -> list[dict[str, Any]]:
     return [mcp_tool_to_anthropic(tool) for tool in sorted(tools, key=lambda t: t.qualified_name)]
 
 
-class LLMResponse(Protocol):
-    """The slice of a Messages API response the agent loop actually reads."""
-
-    content: list[Any]
-    stop_reason: str | None
-
-
-class LLMClient(Protocol):
-    """What the agent needs from a model. Implemented for real below, and by a
-    scripted double in the tests."""
-
-    def create(
-        self,
-        messages: list[dict[str, Any]],
-        tools: list[dict[str, Any]],
-        system: str,
-    ) -> LLMResponse: ...
-
-
 class AnthropicClient:
     """Thin wrapper over the Messages API."""
 
@@ -79,15 +52,15 @@ class AnthropicClient:
     def create(
         self,
         messages: list[dict[str, Any]],
-        tools: list[dict[str, Any]],
+        tools: list[RegisteredTool],
         system: str,
-    ) -> LLMResponse:
+    ):
         try:
             return self._client.messages.create(
                 model=self.model,
                 max_tokens=self.max_tokens,
                 system=system,
-                tools=tools,
+                tools=mcp_tools_to_anthropic(tools),
                 messages=messages,
             )
         # Most specific first: each of these needs a different fix.

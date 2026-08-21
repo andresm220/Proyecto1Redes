@@ -5,8 +5,13 @@ A Model Context Protocol host and server built from scratch for **CC3067 Redes**
 
 **No MCP SDK is used anywhere in this repository.** JSON-RPC 2.0 framing, the
 handshake, requests, notifications, responses and errors are all implemented by
-hand. The only third-party runtime dependencies are the Anthropic SDK (the LLM
-API client, not an MCP library), `rich`, `python-dotenv` and `pytest`.
+hand. The only third-party runtime dependencies are the Anthropic SDK (an LLM
+API client, not an MCP library), `httpx`, `rich`, `python-dotenv` and `pytest`.
+
+The agentic loop is provider-agnostic. It runs against the Anthropic Messages
+API or against any OpenAI-compatible endpoint — Groq, OpenRouter, or a local
+runtime such as Ollama — selected with one line in `.env`. See
+[Choosing a model backend](#choosing-a-model-backend).
 
 - **Protocol version:** `2025-11-25`
 - **Transport:** stdio, NDJSON framing (one JSON message per line, UTF-8)
@@ -60,8 +65,35 @@ Then copy the environment template and add your key:
 cp .env.example .env       # copy .env.example .env   on Windows
 ```
 
-`.env` is git-ignored and is never committed. The key is only needed for the
-agentic loop; tool calls made with `/call` work without it.
+`.env` is git-ignored and is never committed. A key is only needed for the
+agentic loop; tool calls made with `/call` work without one.
+
+## Choosing a model backend
+
+`LLM_PROVIDER` selects the backend. Everything except `anthropic` speaks the
+OpenAI `/chat/completions` dialect, so a single adapter serves them all and
+switching is a one-line change.
+
+| `LLM_PROVIDER` | Reads | Notes |
+|---|---|---|
+| `anthropic` | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` | Requires a funded account |
+| `groq` | `GROQ_API_KEY`, `GROQ_MODEL` | Free tier, hosts open-weight models |
+| `openrouter` | `OPENROUTER_API_KEY`, `OPENROUTER_MODEL` | |
+| `ollama`, `lmstudio` | `LLM_MODEL` | Local runtime, no key needed |
+| `openai_compatible` | `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY` | Anything else |
+
+Base URLs for the known providers are built in; only `openai_compatible` needs
+`LLM_BASE_URL` spelled out.
+
+Free tiers rate-limit on tokens per minute, and the seven `netops` tool schemas
+are large enough to trip that on a multi-step turn. When a provider answers 429
+with a stated wait, the client honours it and retries rather than failing the
+turn — expect visible pauses rather than errors.
+
+The tool descriptors are translated per provider: MCP calls the schema
+`inputSchema`, the Anthropic Messages API calls it `input_schema`, and the
+OpenAI dialect nests it as `function.parameters`. Each adapter owns its own
+translation, so `host/agent.py` never sees a vendor's shape.
 
 ## Running
 
@@ -149,7 +181,7 @@ third-party packages, so a system Python works; point `command` at
 | F1 | `jsonrpc.py` and its tests | Done |
 | F2 | `stdio_transport.py` and `MCPClient` | Done |
 | F3 | The `netops` server over stdio | Done |
-| F4 | Minimal host and agentic loop | Done (not yet run against a funded account) |
+| F4 | Minimal host and agentic loop | Done |
 | F5 | `SPEC.md`, README, conformance check | Done |
 
 ### Third-party validation
@@ -196,7 +228,14 @@ available here.
 > the tray, or end every `Claude.exe` process, before expecting a config change
 > to apply.
 
-One item still stands open: the agentic loop in `host/agent.py` has not been
-exercised against a funded Anthropic account. The loop is covered by tests that
-drive it with a scripted model against the real servers, but no live model has
-chosen a tool on its own.
+### The agentic loop, end to end
+
+The loop has been run against a live model. Asked in Spanish why account
+GT-10233 has no service, the model chose `lookup_account`, read the region off
+the result, chained `list_outages` filtered to that region, and concluded that
+no ticket was warranted because a mass outage already covered the subscriber —
+which is the guidance the server itself supplies in its `initialize`
+`instructions`.
+
+That run used Groq with `openai/gpt-oss-120b`. The Anthropic path is
+implemented and covered by tests but has not been run against a funded account.
