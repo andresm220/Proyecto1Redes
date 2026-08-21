@@ -220,10 +220,11 @@ class Cli:
 
     def ask(self, question: str) -> None:
         if self.agent is None:
-            if not self.config.has_api_key:
+            reason = self.config.llm.why_unusable()
+            if reason:
                 console.print(
-                    "[yellow]ANTHROPIC_API_KEY is not set. Copy .env.example to .env and add "
-                    "your key, or use /call to invoke tools directly.[/yellow]"
+                    f"[yellow]Assistant disabled: {escape(reason)}. Copy .env.example to .env "
+                    "and configure a provider, or use /call to invoke tools directly.[/yellow]"
                 )
             else:
                 console.print("[yellow]No server is connected, so there are no tools.[/yellow]")
