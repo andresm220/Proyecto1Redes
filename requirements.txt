@@ -5,4 +5,10 @@ anthropic>=0.124.0
 httpx>=0.28.1
 python-dotenv>=1.2.3
 rich>=15.0.0
+
+# The remote transport adapter, servers/netops/http_server.py. A web framework
+# is explicitly permitted; it carries MCP, it does not implement it.
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+
 pytest>=9.1.1

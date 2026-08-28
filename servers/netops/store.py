@@ -47,11 +47,20 @@ class NetopsStore:
         self,
         data_dir: Path | None = None,
         now: Callable[[], str] = _utc_now,
+        seed_dir: Path | None = None,
     ) -> None:
         # NETOPS_DATA_DIR lets a test - or a second client such as Claude
         # Desktop - keep its own state without touching the repository's.
         self.data_dir = data_dir or Path(os.environ.get("NETOPS_DATA_DIR", DATA_DIR))
-        self.seed_dir = self.data_dir / "seed"
+        # The seed ships with the code and is never written; the state is
+        # rewritten on every ticket. Being able to place them separately is
+        # what lets a container keep the seed in its read-only image and put
+        # the state somewhere writable - on Cloud Run, /tmp.
+        self.seed_dir = (
+            seed_dir
+            or (Path(os.environ["NETOPS_SEED_DIR"]) if os.environ.get("NETOPS_SEED_DIR") else None)
+            or self.data_dir / "seed"
+        )
         self.state_file = self.data_dir / "state.json"
         self.now = now
         self._lock = threading.Lock()
