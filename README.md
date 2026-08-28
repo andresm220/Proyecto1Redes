@@ -14,7 +14,8 @@ runtime such as Ollama — selected with one line in `.env`. See
 [Choosing a model backend](#choosing-a-model-backend).
 
 - **Protocol version:** `2025-11-25`
-- **Transport:** stdio, NDJSON framing (one JSON message per line, UTF-8)
+- **Transports:** stdio with NDJSON framing, and Streamable HTTP — the same
+  server reached either way
 
 ## Layout
 
@@ -25,15 +26,24 @@ host/                   The MCP host (client side)
   llm/                  Provider adapters for the agentic loop
   logging/              The JSONL session log
 servers/netops/         Our own MCP server: ISP technical support
-  core.py               Business logic and tool schemas (transport-agnostic)
-  stdio_server.py       stdio transport adapter over core.py
+  core.py               Business logic and tool schemas
+  protocol.py           Handshake, method table, error mapping - no transport
+  stdio_server.py       stdio adapter
+  http_server.py        Streamable HTTP adapter
+Dockerfile              Builds the HTTP adapter for a remote deployment
 workspace/              Scratch area the official Filesystem and Git servers use
 tests/                  pytest suite
 ```
 
-The business logic lives in `core.py` and the `*_server.py` modules are thin
-adapters, so adding a remote HTTP transport later means adding one file rather
-than copying the server.
+The business logic lives in `core.py`, the protocol state machine in
+`protocol.py`, and the `*_server.py` modules are adapters that only move bytes.
+Neither adapter holds a method table or a handshake flag of its own, which is
+what makes "the same server, deployed remotely" true rather than aspirational.
+
+The host mirrors that split: `Transport` is a four-method interface, and
+`registry.py` is the only place that knows a server can be remote at all.
+`MCPClient`, the tool table and the agentic loop see one interface and cannot
+tell which transport they were handed.
 
 ## Requirements
 
@@ -239,14 +249,48 @@ third-party packages, so a system Python works; point `command` at
 
 `config/servers.json` declares three, all over stdio:
 
-| Alias | Origin | What it is |
-|---|---|---|
-| `netops` | ours | ISP technical support: 7 tools, see `servers/netops/SPEC.md` |
-| `filesystem` | official | `@modelcontextprotocol/server-filesystem`, rooted at `./workspace` |
-| `git` | official | `mcp-server-git`, on `./workspace/demo-repo` |
+| Alias | Transport | Origin | What it is |
+|---|---|---|---|
+| `netops` | stdio | ours | ISP technical support: 7 tools, see `servers/netops/SPEC.md` |
+| `filesystem` | stdio | official | `@modelcontextprotocol/server-filesystem`, rooted at `./workspace` |
+| `git` | stdio | official | `mcp-server-git`, on `./workspace/demo-repo` |
 
 Together they expose 33 tools, namespaced `<server>__<tool>` so two servers can
 use the same tool name without colliding.
+
+A fourth entry connects the same `netops` server over HTTP, local or remote:
+
+```json
+{
+  "mcpServers": {
+    "netops-remote": {
+      "transport": "http",
+      "url": "https://<service>-<hash>-uc.a.run.app/mcp"
+    }
+  }
+}
+```
+
+Run it locally first to see the mechanism without deploying anything:
+
+```bash
+uvicorn servers.netops.http_server:app --port 8080
+```
+
+```
+Connected to 4/4 server(s), 40 tool(s) available.
+
+│ netops        │ stdio │ python -m servers.netops.stdio_server │ connected │
+│ filesystem    │ stdio │ npx -y @modelcontextprotocol/…        │ connected │
+│ git           │ stdio │ uvx mcp-server-git --repository …     │ connected │
+│ netops-remote │ http  │ http://127.0.0.1:8080/mcp             │ connected │
+```
+
+`docs/mixed-transport-session.jsonl` is one such session: four servers, two
+transports, every message tagged with the one that carried it. The handshake
+durations in it are worth a look — the remote server answers `initialize` in
+14 ms while the local ones take 125 ms to 3.6 s, because stdio pays to spawn a
+process and HTTP only pays for a socket round trip to one already running.
 
 Windows needs `npx` to run through the command interpreter, because it ships as
 `npx.cmd` and `CreateProcess` does not consult `PATHEXT`. That wrapper lives in
@@ -268,6 +312,10 @@ git -C workspace/demo-repo init
   raw request/response examples, and error codes
 - `docs/demo-filesystem-git.md` — the Filesystem + Git scenario: one turn that
   writes a file, stages it and commits it, with the session log alongside it
+- `docs/mixed-transport-session.jsonl` — one session across four servers and
+  both transports
+- `Dockerfile` — builds the HTTP adapter; `servers/netops/SPEC.md` §7.9 covers
+  the container and the Cloud Run deployment
 - `docs/reporte-avance.pdf` — the partial-delivery report submitted for the
   course, in Spanish, with its evidence screenshots under `docs/img/`
 

@@ -3,7 +3,8 @@
 **Server name:** `netops`
 **Version:** `1.0.0`
 **Protocol version:** `2025-11-25`
-**Transport:** stdio, NDJSON framing
+**Transports:** stdio (NDJSON framing) and Streamable HTTP — the same
+server, reached two ways
 
 Every JSON-RPC exchange shown in this document was captured from a running
 server, not written by hand.
@@ -48,10 +49,30 @@ is resolved. The seed is arranged so the entities relate to each other: account
 
 ---
 
-## 2. Transport and protocol version
+## 2. Transports and protocol version
 
-The server speaks JSON-RPC 2.0 over stdio. It is launched as a subprocess by the
-host and communicates through the standard streams.
+The server speaks JSON-RPC 2.0 over two transports. Which one carries a message
+changes nothing about the message: the same handshake, the same tool schemas,
+the same error codes, the same `isError` semantics.
+
+That is not a coincidence of careful copying. The protocol engine lives in
+`servers/netops/protocol.py` and the business logic in `servers/netops/core.py`;
+`stdio_server.py` and `http_server.py` are adapters that do nothing but move
+bytes. Neither one contains a method table or a handshake flag of its own.
+
+```
+                    core.py          business logic, tool schemas
+                       |
+                  protocol.py        handshake, method table, error mapping
+                    /              stdio_server.py    http_server.py
+              |                  |
+           a pipe            POST /mcp
+```
+
+### 2.1 stdio
+
+The server is launched as a subprocess by the host and communicates through the
+standard streams.
 
 | Aspect | Value |
 |---|---|
@@ -74,6 +95,50 @@ implemented by hand in `host/mcp/jsonrpc.py` and
 startup. On Windows these default to `cp1252`, which corrupts any payload
 containing accented characters — and the seed data contains several
 (`María Fernanda Ochoa`, `Petén`).
+
+### 2.2 Streamable HTTP
+
+One endpoint, `POST /mcp`, carrying exactly one JSON-RPC message per request.
+
+| Aspect | Value |
+|---|---|
+| Endpoint | `POST /mcp` |
+| Health check | `GET /health` |
+| Session teardown | `DELETE /mcp` (optional in the spec, honoured here) |
+| Request headers | `Content-Type: application/json`, `Accept: application/json, text/event-stream` |
+| Session header | `Mcp-Session-Id`, issued at `initialize`, required afterwards |
+| Version header | `MCP-Protocol-Version`, required after `initialize` |
+
+The status code says what kind of message the server received:
+
+| Received | Answer |
+|---|---|
+| a request | `200` with `Content-Type: application/json` and the response |
+| a notification | `202 Accepted`, no body — none is owed |
+| a response | `202 Accepted`, likewise |
+
+Only the single-JSON-response mode is implemented. The specification also
+allows answering with an SSE stream and a `GET /mcp` for server-initiated
+messages, but nothing here needs a server to push: every exchange is a client
+request and its answer.
+
+**Sessions.** This is the one thing HTTP needs that stdio does not. A pipe *is*
+the session — it begins when the process starts and ends when it exits — but
+HTTP requests arrive independently and must say which conversation they belong
+to. `initialize` creates a session and returns its id in the `Mcp-Session-Id`
+response header; every later request echoes it back. An unknown id is answered
+`404`, which the specification defines as the signal to start a new session
+rather than to retry.
+
+Sessions hold handshake state only. The store is shared, because two clients of
+the same server must see the same tickets.
+
+**Which layer an error belongs to.** An HTTP status describes the *exchange*:
+the body was not JSON, the session is gone, the protocol version is one the
+server cannot speak. A JSON-RPC error object describes the *message*: unknown
+method, bad arguments. So `-32601` comes back as HTTP `200` — the request was
+well formed, and the answer to it happens to be an error. Conflating the two
+would make a packet capture unreadable.
 
 ---
 
@@ -545,9 +610,10 @@ For `require_one_of` violations, `data` is `{"expected_one_of": [...]}` instead.
 
 ### 7.1 Requirements
 
-Python 3.11 or newer. No third-party package is needed to run the server itself
-— it uses only the standard library plus this repository's own
-`host/mcp/jsonrpc.py`.
+Python 3.11 or newer. The stdio adapter needs no third-party package at all — it
+uses only the standard library plus this repository's own
+`host/mcp/jsonrpc.py`. The HTTP adapter additionally needs `fastapi` and
+`uvicorn`, which carry MCP rather than implementing it.
 
 ### 7.2 Running standalone
 
@@ -567,7 +633,33 @@ The server reads NDJSON from stdin. Paste a handshake to try it by hand:
 
 Close stdin (Ctrl+Z then Enter on Windows, Ctrl+D on Unix) to shut it down.
 
-### 7.3 Connecting from this repository's host
+### 7.3 Running over HTTP
+
+```bash
+uvicorn servers.netops.http_server:app --host 0.0.0.0 --port 8080
+```
+
+Check it is alive:
+
+```bash
+curl http://localhost:8080/health
+{"status":"ok","server":"netops","version":"1.0.0","protocolVersion":"2025-11-25",
+ "transport":"streamable-http","tools":7,"sessions":0}
+```
+
+Drive a whole session by hand, keeping the session id from the first response:
+
+```bash
+curl -i -X POST http://localhost:8080/mcp   -H 'Content-Type: application/json'   -d '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"curl","version":"1.0"}}}'
+# -> 200, with a Mcp-Session-Id header
+
+curl -X POST http://localhost:8080/mcp   -H 'Content-Type: application/json'   -H 'Mcp-Session-Id: <the id>'   -H 'MCP-Protocol-Version: 2025-11-25'   -d '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+# -> 202, no body
+
+curl -X POST http://localhost:8080/mcp   -H 'Content-Type: application/json'   -H 'Mcp-Session-Id: <the id>'   -H 'MCP-Protocol-Version: 2025-11-25'   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+### 7.4 Connecting from this repository's host
 
 `config/servers.json` already declares it:
 
@@ -592,7 +684,7 @@ Then `python -m host.main`, and:
 
 The host namespaces tools as `<server>__<tool>`.
 
-### 7.4 Connecting from Claude Code
+### 7.5 Connecting from Claude Code
 
 ```
 claude mcp add netops -- python -m servers.netops.stdio_server
@@ -608,7 +700,7 @@ check — it starts the server and completes the handshake — and reports
 
 This server has been verified this way.
 
-### 7.5 Connecting from Claude Desktop
+### 7.6 Connecting from Claude Desktop
 
 Add an `mcpServers` entry to `claude_desktop_config.json`. Merge it into the file
 rather than replacing it — the file also holds the application's own preferences.
@@ -667,7 +759,7 @@ connection looks like this:
 
 This server has been verified this way against Claude Desktop 1.32885.1.0.
 
-### 7.6 Writing your own client
+### 7.7 Writing your own client
 
 1. Launch the server as a subprocess with pipes on stdin and stdout. Force
    UTF-8 on the child (`PYTHONIOENCODING=utf-8`), and set the working directory
@@ -680,9 +772,57 @@ This server has been verified this way against Claude Desktop 1.32885.1.0.
 5. Read `stderr` on a separate thread and never parse it as protocol.
 6. To shut down, close the server's stdin and wait for it to exit.
 
-### 7.7 Data directory
+### 7.8 Data directory
 
 The server reads its seed from `servers/netops/data/seed/` and writes state to
 `servers/netops/data/state.json`. Set `NETOPS_DATA_DIR` to relocate both — the
 test suite uses this to give every test its own copy, and a second client can use
 it to keep its state separate from the repository's.
+
+`NETOPS_SEED_DIR` relocates the seed on its own. The seed ships with the code
+and is never written; the state is rewritten on every ticket. Being able to
+place them separately is what lets a container keep the seed inside its
+read-only image and write the state to `/tmp`, which on some platforms is the
+only writable path.
+
+### 7.9 Container and remote deployment
+
+```bash
+docker build -t netops-mcp .
+docker run --rm -p 8080:8080 netops-mcp
+curl http://localhost:8080/health
+```
+
+The image carries `host/` as well as `servers/`, because `core.py` imports the
+hand-written JSON-RPC error types from `host/mcp/jsonrpc.py` — the server and
+the host share one definition of what a `-32602` is rather than each keeping a
+copy.
+
+Deploying to Cloud Run:
+
+```bash
+gcloud run deploy netops-mcp   --source .   --region us-central1   --allow-unauthenticated   --port 8080
+```
+
+`--source` hands the repository to Cloud Build, so no image has to be pushed by
+hand. `PORT` is injected by the platform and the container's `CMD` expands it.
+
+Then point the host at it by adding one entry to `config/servers.json`:
+
+```json
+{
+  "mcpServers": {
+    "netops-remote": {
+      "transport": "http",
+      "url": "https://<service>-<hash>-uc.a.run.app/mcp"
+    }
+  }
+}
+```
+
+**State is not durable in the cloud.** Tickets are written to `/tmp`, which is
+per-instance and disappears when the instance is recycled. That is a deliberate
+limit of this deployment, not an oversight: the assignment asks for the same
+server reachable remotely, not for a managed database. A durable deployment
+would point `NETOPS_DATA_DIR` at a mounted volume or replace the JSON store
+with one backed by a database — `core.py` would not change either way.
