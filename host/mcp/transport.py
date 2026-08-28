@@ -19,6 +19,11 @@ class TransportError(Exception):
 class Transport(ABC):
     """A bidirectional channel carrying one JSON-RPC message at a time."""
 
+    #: How this channel moves bytes, as the structured log names it. Every
+    #: logged message is tagged with it, so one session log stays readable
+    #: when it mixes local subprocesses with a remote server over HTTP.
+    kind: str = "unknown"
+
     @abstractmethod
     def start(self) -> None:
         """Open the channel. Must be called before send() or receive()."""

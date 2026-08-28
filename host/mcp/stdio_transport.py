@@ -32,6 +32,8 @@ DEFAULT_CLOSE_TIMEOUT = 5.0
 class StdioTransport(Transport):
     """Runs one MCP server as a child process and exchanges NDJSON with it."""
 
+    kind = "stdio"
+
     def __init__(
         self,
         command: str,

@@ -61,6 +61,7 @@ class ServerRegistry:
         self.clients: dict[str, MCPClient] = {}
         self.failures: dict[str, str] = {}
         self._tools: dict[str, RegisteredTool] = {}
+        self._transports: dict[str, str] = {}
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -80,6 +81,9 @@ class ServerRegistry:
             name=name,
             on_stderr=self._on_stderr,
         )
+        # Recorded before connecting, not after: the handshake is itself
+        # traffic worth logging, and it happens inside connect().
+        self._transports[name] = transport.kind
         client = MCPClient(transport, name=name, on_message=self._on_message)
         client.connect()
         self.clients[name] = client
@@ -104,6 +108,11 @@ class ServerRegistry:
             client.close()
         self.clients.clear()
         self._tools.clear()
+        self._transports.clear()
+
+    def transport_of(self, server: str) -> str:
+        """Which transport carries this server's traffic, for the log."""
+        return self._transports.get(server, "unknown")
 
     def __enter__(self) -> "ServerRegistry":
         self.connect_all()
