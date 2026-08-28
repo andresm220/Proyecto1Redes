@@ -28,6 +28,39 @@ _EOF = object()
 
 DEFAULT_CLOSE_TIMEOUT = 5.0
 
+# Node's launchers ship on Windows as batch scripts - npx is npx.cmd - and
+# CreateProcess does not consult PATHEXT, so launching "npx" directly raises
+# FileNotFoundError there. They have to go through the command interpreter.
+#
+# uvx is deliberately absent: it is a real .exe, and wrapping it in cmd only
+# adds a layer that can mangle argument quoting. The rule keys on the command
+# name rather than living in config/servers.json, so the same declaration file
+# works unchanged on Windows, macOS and Linux.
+WINDOWS_SHELL_COMMANDS = frozenset({"npx", "npm", "yarn", "pnpm", "bunx"})
+
+
+def build_argv(command: str, args: list[str], is_windows: bool | None = None) -> list[str]:
+    """Resolve a server declaration into the argv that actually launches it.
+
+    Two rewrites happen here, both of them platform detail that has no place
+    in a configuration file:
+
+    "python" becomes the interpreter running the host. config/servers.json
+    says "python" so it stays portable, but a bare "python" resolves against
+    PATH and would miss the virtual environment, starting the server without
+    the dependencies it needs.
+
+    A Node launcher on Windows is prefixed with `cmd /c`, for the reason
+    above.
+    """
+    if is_windows is None:
+        is_windows = os.name == "nt"
+    if command in ("python", "python3"):
+        return [sys.executable, *args]
+    if is_windows and command.lower() in WINDOWS_SHELL_COMMANDS:
+        return ["cmd", "/c", command, *args]
+    return [command, *args]
+
 
 class StdioTransport(Transport):
     """Runs one MCP server as a child process and exchanges NDJSON with it."""
@@ -61,17 +94,6 @@ class StdioTransport(Transport):
 
     # -- lifecycle ---------------------------------------------------------
 
-    def _resolve_command(self) -> str:
-        """Run child Python processes with the interpreter the host is using.
-
-        config/servers.json says "python" so the file stays portable, but a
-        bare "python" would resolve against PATH and miss the virtual
-        environment, so the server would start without our dependencies.
-        """
-        if self.command in ("python", "python3"):
-            return sys.executable
-        return self.command
-
     def _build_env(self) -> dict[str, str]:
         env = os.environ.copy()
         env.update(self.extra_env)
@@ -85,7 +107,7 @@ class StdioTransport(Transport):
         if self._process is not None:
             raise TransportError(f"{self.name}: transport already started")
 
-        argv = [self._resolve_command(), *self.args]
+        argv = build_argv(self.command, self.args)
         try:
             self._process = subprocess.Popen(
                 argv,
@@ -100,7 +122,9 @@ class StdioTransport(Transport):
                 bufsize=1,  # line buffered, so a written line leaves immediately
             )
         except OSError as exc:
-            raise TransportError(f"{self.name}: could not launch {argv[0]!r}: {exc}") from exc
+            raise TransportError(
+                f"{self.name}: could not launch {self.command!r}: {exc}"
+            ) from exc
 
         self._reader = threading.Thread(
             target=self._read_loop, name=f"{self.name}-stdout", daemon=True
