@@ -152,11 +152,12 @@ class Cli:
     def print_servers(self) -> None:
         table = Table(title="Servers")
         table.add_column("Name", style="bold cyan", no_wrap=True)
-        table.add_column("Command")
+        table.add_column("Transport", no_wrap=True)
+        table.add_column("Command or URL")
         table.add_column("State")
         table.add_column("Server info")
         for name, config in self.config.servers.items():
-            launch = " ".join([config.command, *config.args])
+            launch = config.describe()
             client = self.registry.clients.get(name)
             if client is not None:
                 info = client.server_info
@@ -165,7 +166,7 @@ class Cli:
             else:
                 state = "[red]failed[/red]"
                 detail = escape(self.registry.failures.get(name, "not connected"))
-            table.add_row(name, launch, state, detail)
+            table.add_row(name, config.transport, launch, state, detail)
         console.print(table)
 
     def print_tools(self) -> None:

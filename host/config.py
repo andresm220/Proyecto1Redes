@@ -2,7 +2,7 @@
 
 Reads two things:
   - the process environment (via .env), for the Anthropic API key and model
-  - config/servers.json, which declares the MCP servers to launch over stdio
+  - config/servers.json, which declares the MCP servers and how to reach them
 """
 
 from __future__ import annotations
@@ -17,6 +17,12 @@ from dotenv import load_dotenv
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SERVERS_CONFIG = PROJECT_ROOT / "config" / "servers.json"
 DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"
+
+# How a server is reached. The declaration file names it; the host picks the
+# matching Transport, and nothing above that layer knows which one it got.
+TRANSPORT_STDIO = "stdio"
+TRANSPORT_HTTP = "http"
+VALID_TRANSPORTS = (TRANSPORT_STDIO, TRANSPORT_HTTP)
 
 # Providers that speak OpenAI's /chat/completions, and where they live.
 OPENAI_COMPATIBLE_PRESETS = {
@@ -35,12 +41,28 @@ class ConfigError(Exception):
 
 @dataclass(frozen=True)
 class ServerConfig:
-    """How to launch one MCP server as a subprocess."""
+    """How to reach one MCP server: a subprocess to launch, or a URL to post to."""
 
     name: str
-    command: str
+    command: str = ""
     args: list[str] = field(default_factory=list)
     env: dict[str, str] = field(default_factory=dict)
+    transport: str = TRANSPORT_STDIO
+    url: str = ""
+
+    @property
+    def is_stdio(self) -> bool:
+        return self.transport == TRANSPORT_STDIO
+
+    @property
+    def is_http(self) -> bool:
+        return self.transport == TRANSPORT_HTTP
+
+    def describe(self) -> str:
+        """One line naming where this server lives, for the /servers table."""
+        if self.is_http:
+            return self.url
+        return " ".join([self.command, *self.args])
 
 
 @dataclass(frozen=True)
@@ -107,20 +129,46 @@ def load_servers(path: Path | None = None) -> dict[str, ServerConfig]:
     for name, entry in entries.items():
         if not isinstance(entry, dict):
             raise ConfigError(f"{config_path}: server '{name}' must be an object")
-        command = entry.get("command")
-        if not isinstance(command, str) or not command:
-            raise ConfigError(f"{config_path}: server '{name}' needs a 'command' string")
+
+        # Declaring the transport is optional; stdio is by far the common case
+        # and every server in this project started life as one.
+        transport = entry.get("transport", TRANSPORT_STDIO)
+        if transport not in VALID_TRANSPORTS:
+            allowed = ", ".join(repr(option) for option in VALID_TRANSPORTS)
+            raise ConfigError(
+                f"{config_path}: server '{name}' has transport {transport!r}; "
+                f"expected one of {allowed}"
+            )
+
         args = entry.get("args", [])
         if not isinstance(args, list) or not all(isinstance(a, str) for a in args):
             raise ConfigError(f"{config_path}: server '{name}' args must be a list of strings")
         env = entry.get("env", {})
         if not isinstance(env, dict):
             raise ConfigError(f"{config_path}: server '{name}' env must be an object")
+
+        command = entry.get("command", "")
+        url = entry.get("url", "")
+        if transport == TRANSPORT_STDIO:
+            if not isinstance(command, str) or not command:
+                raise ConfigError(
+                    f"{config_path}: stdio server '{name}' needs a 'command' string"
+                )
+        else:
+            if not isinstance(url, str) or not url:
+                raise ConfigError(f"{config_path}: http server '{name}' needs a 'url' string")
+            if not url.startswith(("http://", "https://")):
+                raise ConfigError(
+                    f"{config_path}: server '{name}' url must start with http:// or https://"
+                )
+
         servers[name] = ServerConfig(
             name=name,
-            command=command,
+            command=command if isinstance(command, str) else "",
             args=list(args),
             env={str(k): str(v) for k, v in env.items()},
+            transport=transport,
+            url=url if isinstance(url, str) else "",
         )
 
     if not servers:
