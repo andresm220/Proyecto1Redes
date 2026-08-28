@@ -8,6 +8,7 @@ Behaviour is switched with the FAKE_MODE environment variable:
 
     normal        the happy path (default)
     bad_version   answer initialize with an unsupported protocolVersion
+    old_version   answer initialize with an older revision we still support
     garbage       emit an unparseable line before every valid response
     silent        accept initialize but never answer it
     crash         exit abruptly once initialize arrives
@@ -73,7 +74,10 @@ def handle(request: dict) -> None:
         if MODE == "silent":
             log("swallowing initialize on purpose")
             return
-        version = "1999-01-01" if MODE == "bad_version" else PROTOCOL_VERSION
+        version = {
+            "bad_version": "1999-01-01",
+            "old_version": "2025-06-18",
+        }.get(MODE, PROTOCOL_VERSION)
         ok(
             message_id,
             {

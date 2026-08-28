@@ -11,7 +11,12 @@ import threading
 
 import pytest
 
-from host.mcp.client import McpError, MCPClient, ProtocolVersionError
+from host.mcp.client import (
+    SUPPORTED_PROTOCOL_VERSIONS,
+    McpError,
+    MCPClient,
+    ProtocolVersionError,
+)
 from host.mcp.stdio_transport import StdioTransport
 from host.mcp.transport import TransportError
 
@@ -53,9 +58,32 @@ def test_unsupported_protocol_version_disconnects_and_reports():
         client.connect()
 
     assert exc_info.value.offered == "1999-01-01"
-    assert exc_info.value.supported == "2025-11-25"
+    assert exc_info.value.supported == SUPPORTED_PROTOCOL_VERSIONS
     assert client.initialized is False
     assert client.transport.is_running is False, "the server must have been shut down"
+
+
+def test_an_older_but_supported_version_is_accepted():
+    """Disconnecting is for a version we cannot speak, not for one that merely
+    differs from the one we asked for. A server pinned to an earlier revision
+    is a server we can still talk to."""
+    client = make_client("old_version")
+    try:
+        client.connect()
+        assert client.initialized is True
+        assert client.negotiated_version == "2025-06-18"
+        assert client.protocol_version == "2025-11-25", "we still ask for the newest"
+    finally:
+        client.close()
+
+
+def test_the_negotiated_version_is_the_one_the_server_named():
+    client = make_client("normal")
+    try:
+        client.connect()
+        assert client.negotiated_version == "2025-11-25"
+    finally:
+        client.close()
 
 
 def test_calls_before_the_handshake_are_refused():

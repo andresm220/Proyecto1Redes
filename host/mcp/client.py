@@ -21,6 +21,15 @@ from host.mcp import jsonrpc
 from host.mcp.transport import Transport, TransportError
 
 PROTOCOL_VERSION = "2025-11-25"
+
+# Older revisions this client can still speak, newest first. The server answers
+# initialize with the version it intends to use, and the specification requires
+# the client to disconnect when that version is one it does not support - which
+# is not the same as one that merely differs from the version we asked for.
+# Collapsing the two would refuse a server pinned to an earlier revision even
+# though we can talk to it perfectly well.
+SUPPORTED_PROTOCOL_VERSIONS = (PROTOCOL_VERSION, "2025-06-18", "2025-03-26")
+
 CLIENT_NAME = "uvg-mcp-host"
 CLIENT_VERSION = "0.1.0"
 
@@ -44,11 +53,12 @@ class ProtocolVersionError(Exception):
     trying to carry on with a version it cannot guarantee.
     """
 
-    def __init__(self, offered: str, supported: str) -> None:
+    def __init__(self, offered: str, supported: tuple[str, ...]) -> None:
         self.offered = offered
-        self.supported = supported
+        self.supported = tuple(supported)
+        listed = ", ".join(repr(version) for version in self.supported)
         super().__init__(
-            f"server offered protocol version {offered!r}, this client supports {supported!r}"
+            f"server offered protocol version {offered!r}; this client supports {listed}"
         )
 
 
@@ -60,12 +70,14 @@ class MCPClient:
         transport: Transport,
         name: str = "server",
         protocol_version: str = PROTOCOL_VERSION,
+        supported_versions: tuple[str, ...] = SUPPORTED_PROTOCOL_VERSIONS,
         timeout: float = DEFAULT_TIMEOUT,
         on_message: Callable[[str, str, dict[str, Any]], None] | None = None,
     ) -> None:
         self.transport = transport
         self.name = name
         self.protocol_version = protocol_version
+        self.supported_versions = tuple(supported_versions)
         self.timeout = timeout
         self._on_message = on_message
 
@@ -80,6 +92,7 @@ class MCPClient:
         self.server_info: dict[str, Any] = {}
         self.server_capabilities: dict[str, Any] = {}
         self.instructions: str = ""
+        self.negotiated_version: str = ""
         self.initialized = False
 
     # -- plumbing ----------------------------------------------------------
@@ -203,12 +216,15 @@ class MCPClient:
         )
 
         offered = result.get("protocolVersion")
-        if offered != self.protocol_version:
+        if offered not in self.supported_versions:
             # Required by the spec: disconnect rather than proceed on a version
             # we cannot honour.
             self.close()
-            raise ProtocolVersionError(str(offered), self.protocol_version)
+            raise ProtocolVersionError(str(offered), self.supported_versions)
 
+        # What the session actually runs on, which is not necessarily what we
+        # asked for. An HTTP transport has to echo it back in a header.
+        self.negotiated_version = str(offered)
         self.server_info = result.get("serverInfo", {})
         self.server_capabilities = result.get("capabilities", {})
         self.instructions = result.get("instructions", "") or ""
