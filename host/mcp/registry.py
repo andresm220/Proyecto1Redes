@@ -14,8 +14,9 @@ from typing import Any, Callable, Iterator
 
 from host.config import ServerConfig
 from host.mcp.client import MCPClient, ProtocolVersionError
+from host.mcp.http_transport import HttpTransport
 from host.mcp.stdio_transport import StdioTransport
-from host.mcp.transport import TransportError
+from host.mcp.transport import Transport, TransportError
 
 NAMESPACE_SEPARATOR = "__"
 ANTHROPIC_TOOL_NAME = re.compile(r"^[a-zA-Z0-9_-]{1,128}$")
@@ -73,14 +74,26 @@ class ServerRegistry:
             except (TransportError, ProtocolVersionError, OSError) as exc:
                 self.failures[name] = str(exc)
 
-    def _connect_one(self, name: str, config: ServerConfig) -> None:
-        transport = StdioTransport(
+    def _build_transport(self, name: str, config: ServerConfig) -> Transport:
+        """Pick the channel from the declaration.
+
+        This is the only place in the host that knows a server can be remote.
+        Everything above it - MCPClient, the registry's own tool table, the
+        agentic loop - sees one Transport interface and cannot tell which it
+        got. If the agent needed an `if` here, the abstraction would be wrong.
+        """
+        if config.is_http:
+            return HttpTransport(url=config.url, name=name, on_stderr=self._on_stderr)
+        return StdioTransport(
             command=config.command,
             args=config.args,
             env=config.env,
             name=name,
             on_stderr=self._on_stderr,
         )
+
+    def _connect_one(self, name: str, config: ServerConfig) -> None:
+        transport = self._build_transport(name, config)
         # Recorded before connecting, not after: the handshake is itself
         # traffic worth logging, and it happens inside connect().
         self._transports[name] = transport.kind
