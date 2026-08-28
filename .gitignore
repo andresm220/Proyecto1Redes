@@ -25,6 +25,12 @@ servers/netops/data/state.json
 # under docs/ as evidence instead of committing every run.
 logs/
 
+# Scratch area the official Filesystem and Git servers operate on. The
+# directory itself is versioned so they have somewhere to start; whatever
+# the demo creates inside it is not.
+workspace/*
+!workspace/.gitkeep
+
 # Tooling config, not part of the deliverable
 .claude/
 

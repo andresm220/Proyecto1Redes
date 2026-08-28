@@ -1,8 +1,21 @@
 {
   "mcpServers": {
     "netops": {
+      "transport": "stdio",
       "command": "python",
       "args": ["-m", "servers.netops.stdio_server"],
+      "env": {}
+    },
+    "filesystem": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "./workspace"],
+      "env": {}
+    },
+    "git": {
+      "transport": "stdio",
+      "command": "uvx",
+      "args": ["mcp-server-git", "--repository", "./workspace/demo-repo"],
       "env": {}
     }
   }

@@ -19,13 +19,15 @@ runtime such as Ollama — selected with one line in `.env`. See
 ## Layout
 
 ```
-config/servers.json     Declares which MCP servers the host launches
+config/servers.json     Declares which MCP servers the host connects to
 host/                   The MCP host (client side)
   mcp/                  Hand-written JSON-RPC + transport + session lifecycle
-  llm/                  Anthropic Messages API wrapper
+  llm/                  Provider adapters for the agentic loop
+  logging/              The JSONL session log
 servers/netops/         Our own MCP server: ISP technical support
   core.py               Business logic and tool schemas (transport-agnostic)
   stdio_server.py       stdio transport adapter over core.py
+workspace/              Scratch area the official Filesystem and Git servers use
 tests/                  pytest suite
 ```
 
@@ -36,7 +38,13 @@ than copying the server.
 ## Requirements
 
 - Python 3.11 or newer (developed on 3.12)
-- An Anthropic API key, for the agentic loop only
+- An API key for one model provider, for the agentic loop only
+- **Node.js**, for the official Filesystem server (`npx`)
+- **uv**, for the official Git server (`uvx`) — `pip install uv`
+
+Both official servers are downloaded on first use and run as external
+processes. Neither is imported as a library: consuming them as binaries is what
+requirement 4 asks for, and no MCP SDK enters this project either way.
 
 ## Setup
 
@@ -227,10 +235,39 @@ restart the app:
 third-party packages, so a system Python works; point `command` at
 `.venv\Scripts\python.exe` if you would rather use the virtual environment.
 
+## Connected servers
+
+`config/servers.json` declares three, all over stdio:
+
+| Alias | Origin | What it is |
+|---|---|---|
+| `netops` | ours | ISP technical support: 7 tools, see `servers/netops/SPEC.md` |
+| `filesystem` | official | `@modelcontextprotocol/server-filesystem`, rooted at `./workspace` |
+| `git` | official | `mcp-server-git`, on `./workspace/demo-repo` |
+
+Together they expose 33 tools, namespaced `<server>__<tool>` so two servers can
+use the same tool name without colliding.
+
+Windows needs `npx` to run through the command interpreter, because it ships as
+`npx.cmd` and `CreateProcess` does not consult `PATHEXT`. That wrapper lives in
+`build_argv` in `host/mcp/stdio_transport.py`, keyed on the command name, so
+`config/servers.json` stays free of platform detail and works unchanged on
+Windows, macOS and Linux. `uvx` is a real executable and is deliberately not
+wrapped.
+
+Before the first run, create the workspace the two official servers operate on:
+
+```bash
+mkdir -p workspace/demo-repo
+git -C workspace/demo-repo init
+```
+
 ## Documentation
 
 - `servers/netops/SPEC.md` — the netops server specification: tools, schemas,
   raw request/response examples, and error codes
+- `docs/demo-filesystem-git.md` — the Filesystem + Git scenario: one turn that
+  writes a file, stages it and commits it, with the session log alongside it
 - `docs/reporte-avance.pdf` — the partial-delivery report submitted for the
   course, in Spanish, with its evidence screenshots under `docs/img/`
 
