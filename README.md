@@ -101,6 +101,13 @@ translation, so `host/agent.py` never sees a vendor's shape.
 python -m host.main
 ```
 
+| Option | Effect |
+|---|---|
+| `--config PATH` | Server declarations to load (default: `config/servers.json`) |
+| `--log-dir PATH` | Where to write the JSONL session log (default: `logs/`) |
+| `-v`, `--verbose` | Show the live JSON-RPC trace (the default) |
+| `-q`, `--quiet` | Start with the live trace off; the file log is written either way |
+
 Commands:
 
 | Command | Description |
@@ -108,7 +115,11 @@ Commands:
 | `/servers` | List the configured MCP servers and their connection state |
 | `/tools` | List every tool exposed by the connected servers |
 | `/call <tool> <json>` | Invoke one tool directly, bypassing the LLM |
-| `/verbose` | Toggle the JSON-RPC message trace (on by default) |
+| `/log` | Where the session log is, and how much is in it |
+| `/log tail <n>` | Replay the last n MCP messages (default 20) |
+| `/verbose` | Toggle the live JSON-RPC message trace |
+| `/history` | Show the conversation turn by turn |
+| `/save <file>` | Write the conversation to a JSON file |
 | `/reset` | Forget the conversation so far |
 | `/help` | Show the command table |
 | `/quit` | Close every server and exit |
@@ -118,7 +129,56 @@ servers' tools to answer. Tools are namespaced as `<server>__<tool>`, so
 `/call netops__lookup_account {"account_id": "GT-10231"}` invokes `lookup_account`
 on the `netops` server.
 
-The assistant needs `ANTHROPIC_API_KEY` and a funded account; `/call` does not.
+The assistant needs a configured model backend; `/call` does not.
+
+## The session log
+
+Every MCP message, in both directions and from every server, is appended to
+`logs/mcp-YYYYMMDD-HHMMSS.jsonl` as one JSON object per line:
+
+```json
+{"ts":"2026-08-28T18:40:29.747+00:00","direction":"out","server":"netops",
+ "transport":"stdio","type":"request","method":"tools/call","id":3,
+ "payload":{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{...}}}
+```
+
+The `type` is derived from the envelope rather than declared by the caller:
+`method` with an `id` is a request, `method` alone a notification, `result` a
+response, `error` an error. Those are the same four categories the packet
+capture analysis uses.
+
+A response also carries `duration_ms`, correlated back to the request with the
+matching `id` on the same server. It is measured with `perf_counter`, not
+`monotonic`, because `monotonic` advances in ~15 ms steps on Windows and would
+round every local stdio round trip to 0.
+
+The payload is stored whole and every line is flushed as it is written, so a
+session that ends in a crash is still readable afterwards. The file log is
+independent of `--quiet`: silencing the console view must not put holes in the
+evidence.
+
+Read it back without leaving the chat:
+
+```
+> /log tail 4
+                        Last 4 MCP message(s)
++--------------+----+--------+----------+------------+----+----------+
+| Time         |    | Server | Type     | Method     | Id | Duration |
++--------------+----+--------+----------+------------+----+----------+
+| 18:40:29.747 | -> | netops | request  | tools/list |  2 |          |
+| 18:40:29.750 | <- | netops | response | tools/list |  2 |   2.9 ms |
+| 18:40:32.085 | -> | netops | request  | tools/call |  3 |          |
+| 18:40:32.091 | <- | netops | response | tools/call |  3 |   1.2 ms |
++--------------+----+--------+----------+------------+----+----------+
+```
+
+A response has no method of its own, so the view labels it with the method of
+the request it answers - a trace of lines reading `response id=3` is not
+readable. Direction is carried by the arrow as well as by the colour, so the
+trace survives a colour-blind reader and a black-and-white printout.
+
+`logs/` is git-ignored; a curated session is committed under `docs/` as
+evidence instead of every run.
 
 ## Tests
 

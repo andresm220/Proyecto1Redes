@@ -21,6 +21,10 @@ htmlcov/
 # Server runtime state (seed data IS versioned; mutable state is not)
 servers/netops/data/state.json
 
+# Session logs. Every run writes one; a curated sample is versioned
+# under docs/ as evidence instead of committing every run.
+logs/
+
 # Tooling config, not part of the deliverable
 .claude/
 
