@@ -9,11 +9,21 @@ from __future__ import annotations
 
 from typing import Any
 
+# Deliberately domain-neutral. Each server describes its own domain in the
+# `instructions` it returns from initialize, and build_system_prompt folds
+# those in - that field exists precisely so a server can tell the model how
+# its tools are meant to be used. Naming the ISP here as well would duplicate
+# what netops already says, and would actively mislead the model on a turn
+# whose tools come from the Filesystem and Git servers instead.
 BASE_SYSTEM_PROMPT = (
-    "You are a technical-support assistant for an internet service provider in "
-    "Guatemala. You answer through tools connected over MCP; never invent an "
-    "account, a metric, a ticket id or an outage. If a tool reports an error, "
-    "read it and tell the user plainly what happened rather than retrying blindly. "
+    "You answer through tools connected over the Model Context Protocol. "
+    "Never invent a value a tool could give you - an account, a metric, an id, "
+    "a file's contents - call the tool instead. "
+    "If a tool reports an error, read it and either correct the call or tell "
+    "the user plainly what happened; never repeat the same call unchanged. "
+    "Servers do not share a filesystem view: each one resolves paths against "
+    "its own root, so when a path is rejected, find out what that server "
+    "considers its root before guessing another one. "
     "Reply in the language the user wrote in. Keep answers short and concrete."
 )
 
