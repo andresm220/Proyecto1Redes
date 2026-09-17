@@ -14,7 +14,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from rich.console import Console
 from rich.markup import escape
@@ -113,6 +113,7 @@ class Cli:
         )
         self.session: Session | None = None
         self.agent: Agent | None = None
+        self.stderr_sink: Callable[[str, str], None] | None = None
 
     # -- logging -----------------------------------------------------------
 
@@ -143,6 +144,12 @@ class Cli:
         )
 
     def log_stderr(self, server: str, text: str) -> None:
+        # A presentation that cannot afford an unbounded line - the dashboard,
+        # whose panels have a fixed width - replaces this rather than letting
+        # soft_wrap run a path off the edge of the screen.
+        if self.stderr_sink is not None:
+            self.stderr_sink(server, text)
+            return
         self.console.print(
             f"[dim yellow]{escape(f'[{server} stderr]')}[/dim yellow] {escape(text)}",
             highlight=False,

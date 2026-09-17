@@ -41,6 +41,7 @@ from host.mcp.client import PROTOCOL_VERSION
 from host.ui import keyboard
 from host.ui.dashboard import (
     DashboardModel,
+    conversation_width,
     TurnState,
     build_layout,
     log_line,
@@ -62,9 +63,13 @@ class DashboardApp:
 
     def __init__(self, cli: Cli) -> None:
         self.cli = cli
+        self.screen = Console()
         # A console that renders into a buffer rather than onto the screen, so
-        # the commands can print exactly as they always have.
-        self.capture = Console(file=io.StringIO(), width=100, color_system=None)
+        # the commands can print exactly as they always have. Its width is the
+        # conversation panel's, recomputed before every command - a table
+        # rendered even one column too wide wraps inside the panel and stops
+        # being readable.
+        self.capture = self._new_capture()
         cli.console = self.capture
 
         self.model = DashboardModel(
@@ -75,6 +80,15 @@ class DashboardApp:
         self.reader = keyboard.KeyReader()
         self.live: Live | None = None
         self.running = True
+
+        # The log panel *is* the trace, so the textual one would print every
+        # message a second time, straight into the transcript.
+        cli.verbose = False
+        # Server stderr and the trace are printed with soft_wrap=True so a JSON
+        # payload stays copyable, which means those lines ignore the console
+        # width entirely. Inside a panel that is exactly the wrong behaviour,
+        # so they are shortened to fit rather than left to run off the edge.
+        cli.stderr_sink = self.on_stderr
 
         # The logger feeds the log panel directly, so the panel is a view of
         # the same events the JSONL file receives - not a second recording
@@ -114,6 +128,11 @@ class DashboardApp:
             self.say("error", f"stopped at the {payload.get('limit')}-iteration cap")
         self.refresh()
 
+    def on_stderr(self, server: str, text: str) -> None:
+        """A server's own log line, shortened to the panel it lands in."""
+        width = conversation_width(self.screen.width)
+        self.say("output", truncate(f"[{server}] {text}", width))
+
     def say(self, role: str, text: str) -> None:
         self.model.transcript.append((role, text))
         # The conversation panel scrolls by dropping the top, which is what a
@@ -121,6 +140,24 @@ class DashboardApp:
         if len(self.model.transcript) > 60:
             del self.model.transcript[:20]
         self.refresh()
+
+    def _new_capture(self) -> Console:
+        """A buffer console sized to the conversation panel, as it is now.
+
+        Rebuilt rather than resized because the terminal can be resized between
+        one command and the next, and rich fixes a Console's width when it is
+        constructed.
+        """
+        return Console(
+            file=io.StringIO(),
+            width=conversation_width(self.screen.width),
+            color_system=None,
+            legacy_windows=False,
+        )
+
+    def resize_capture(self) -> None:
+        self.capture = self._new_capture()
+        self.cli.console = self.capture
 
     def drain_capture(self) -> str:
         """Take whatever the Cli printed since the last time we looked."""
@@ -130,14 +167,19 @@ class DashboardApp:
 
     def show_captured(self) -> None:
         lines = [line.rstrip() for line in self.drain_capture().splitlines()]
-        lines = [line for line in lines if line.strip()]
+        # Leading and trailing blank lines are framing the buffer added; blank
+        # lines *inside* a table are part of it and have to survive.
+        while lines and not lines[0].strip():
+            lines.pop(0)
+        while lines and not lines[-1].strip():
+            lines.pop()
         if not lines:
             return
         if len(lines) > MAX_CAPTURED_LINES:
             hidden = len(lines) - MAX_CAPTURED_LINES
             lines = lines[:MAX_CAPTURED_LINES] + [f"... {hidden} more line(s)"]
         for line in lines:
-            self.say("tool", line)
+            self.say("output", line)
 
     # -- the turn ----------------------------------------------------------
 
@@ -151,10 +193,13 @@ class DashboardApp:
             if line.split()[0].lower() in ("/quit", "/exit"):
                 self.running = False
                 return
+            # Re-sized first: the terminal may have changed since the last one.
+            self.resize_capture()
             self.cli.handle_command(line)
             self.show_captured()
             return
 
+        self.resize_capture()
         self.model.turn = TurnState(status="thinking")
         self.refresh()
         try:
@@ -169,13 +214,17 @@ class DashboardApp:
     # -- the loop ----------------------------------------------------------
 
     def run(self) -> int:
+        # Connecting happened before this object existed, and everything it
+        # printed is sitting in the buffer. Left there it would surface inside
+        # whatever the first command happens to be.
+        self.drain_capture()
         self.model.servers = servers_from_registry(self.cli.config.servers, self.cli.registry)
         if self.cli.agent is not None:
             self.cli.agent.set_event_handler(self.on_agent_event)
 
         with Live(
             build_layout(self.model),
-            console=Console(),
+            console=self.screen,
             screen=True,
             refresh_per_second=REFRESH_PER_SECOND,
             transient=False,

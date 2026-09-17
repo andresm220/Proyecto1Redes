@@ -59,6 +59,20 @@ from host.ui import theme
 LOG_PANEL_ROWS = 8
 SIDEBAR_WIDTH = 26
 
+# The conversation panel's own borders (2) and horizontal padding (2).
+CONVERSATION_CHROME = 4
+
+
+def conversation_width(terminal_width: int) -> int:
+    """How many columns a command's output may occupy.
+
+    Anything rendered wider than this wraps inside the panel, and a wrapped
+    table is not a table any more - it is the same characters in an order
+    nobody can read. Captured output is therefore rendered at exactly this
+    width rather than at a guessed one.
+    """
+    return max(20, terminal_width - SIDEBAR_WIDTH - CONVERSATION_CHROME)
+
 
 @dataclass
 class ServerRow:
@@ -202,11 +216,20 @@ def render_conversation(model: DashboardModel) -> Panel:
                 # Indented and dim: a tool call is something the assistant did
                 # on the way to an answer, not an answer.
                 blocks.append(Text(f"    {text}", style=theme.COLOUR_MUTED))
+            elif role == "output":
+                # Command output arrives pre-rendered at this panel's exact
+                # width, so it must not be indented: four more columns would
+                # push every line one character past the edge and wrap it,
+                # which is precisely what turns a table into confetti.
+                blocks.append(Text(text, style=theme.COLOUR_MUTED, no_wrap=True))
             elif role == "error":
                 blocks.append(Text(f"  ! {text}", style=theme.COLOUR_ERROR))
             else:
                 blocks.append(Text(text))
-            blocks.append(Text(""))
+            # A blank line separates turns, but not the rows of one block of
+            # output - double-spacing a table is as unreadable as wrapping it.
+            if role != "output":
+                blocks.append(Text(""))
         body = Group(*blocks)
 
     return Panel(body, title="conversation", border_style=theme.COLOUR_FRAME, padding=(0, 1))

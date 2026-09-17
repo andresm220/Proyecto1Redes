@@ -387,3 +387,52 @@ def test_a_long_tool_name_does_not_crowd_out_the_header(model: DashboardModel):
     output = draw(render_header(model), width=100)
     assert "2025-11-25" in output, "the version survives a long tool name too"
     assert "2/10" in output
+
+
+# --------------------------------------------------------------------------
+# Command output has to fit the panel it lands in
+# --------------------------------------------------------------------------
+
+
+def test_the_capture_width_matches_the_conversation_panel():
+    """The bug this pins down: output rendered wider than the panel wraps
+    inside it, and a wrapped table is not a table any more - it is the same
+    characters in an order nobody can read."""
+    from host.ui.dashboard import CONVERSATION_CHROME, SIDEBAR_WIDTH, conversation_width
+
+    assert conversation_width(110) == 110 - SIDEBAR_WIDTH - CONVERSATION_CHROME
+    assert conversation_width(110) == 80
+
+
+def test_the_capture_width_never_collapses_to_nothing():
+    """A terminal narrower than the sidebar must not produce a zero or
+    negative width, which rich would reject."""
+    from host.ui.dashboard import conversation_width
+
+    assert conversation_width(20) >= 20
+    assert conversation_width(1) >= 20
+
+
+def test_command_output_is_not_indented(model: DashboardModel):
+    """Output arrives pre-rendered at the panel's exact width, so four columns
+    of indent would push every line one character past the edge."""
+    model.transcript = [("output", "|" + "-" * 60 + "|")]
+    output = draw(render_conversation(model), width=70)
+    assert "\n     |" not in output, "an indent would have been added"
+
+
+def test_command_output_is_not_double_spaced(model: DashboardModel):
+    """Blank lines between the rows of one table are as unreadable as wrapping."""
+    model.transcript = [("output", "row one"), ("output", "row two")]
+    output = draw(render_conversation(model), width=60)
+    body = [line for line in output.splitlines() if "row " in line]
+    assert len(body) == 2
+    joined = output[output.index("row one"):output.index("row two")]
+    assert joined.count("\n") == 1, "the rows must be adjacent"
+
+
+def test_a_conversation_turn_is_still_separated_by_a_blank_line(model: DashboardModel):
+    model.transcript = [("user", "uno"), ("user", "dos")]
+    output = draw(render_conversation(model), width=60)
+    between = output[output.index("uno"):output.index("dos")]
+    assert between.count("\n") >= 2, "turns stay separated"
