@@ -35,6 +35,17 @@ CLIENT_VERSION = "0.1.0"
 
 DEFAULT_TIMEOUT = 30.0
 
+# The handshake gets its own, far longer budget, because connecting is not the
+# same kind of operation as calling. `npx` and `uvx` servers resolve and
+# download their package on first launch, so a first connect can legitimately
+# take minutes on a slow link - while a tools/call against a server that is
+# already running should never take thirty seconds.
+#
+# Measured on this project, warm cache: netops 0.3s, git 2.6s, filesystem 7-9s.
+# Cold, the day mcp-server-git 1.30.0 was published, git blew past 30s and the
+# host dropped a server that was working perfectly well.
+DEFAULT_CONNECT_TIMEOUT = 120.0
+
 
 class McpError(Exception):
     """The server answered with a JSON-RPC error object."""
@@ -72,6 +83,7 @@ class MCPClient:
         protocol_version: str = PROTOCOL_VERSION,
         supported_versions: tuple[str, ...] = SUPPORTED_PROTOCOL_VERSIONS,
         timeout: float = DEFAULT_TIMEOUT,
+        connect_timeout: float = DEFAULT_CONNECT_TIMEOUT,
         on_message: Callable[[str, str, dict[str, Any]], None] | None = None,
     ) -> None:
         self.transport = transport
@@ -79,6 +91,7 @@ class MCPClient:
         self.protocol_version = protocol_version
         self.supported_versions = tuple(supported_versions)
         self.timeout = timeout
+        self.connect_timeout = connect_timeout
         self._on_message = on_message
 
         self._ids = itertools.count(1)
@@ -213,6 +226,7 @@ class MCPClient:
                 "capabilities": {},
                 "clientInfo": {"name": CLIENT_NAME, "version": CLIENT_VERSION},
             },
+            timeout=self.connect_timeout,
         )
 
         offered = result.get("protocolVersion")

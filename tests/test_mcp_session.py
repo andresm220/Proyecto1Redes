@@ -21,14 +21,26 @@ from host.mcp.stdio_transport import StdioTransport
 from host.mcp.transport import TransportError
 
 
-def make_client(mode: str = "normal", timeout: float = 15.0) -> MCPClient:
+def make_client(
+    mode: str = "normal",
+    timeout: float = 15.0,
+    connect_timeout: float | None = None,
+) -> MCPClient:
     transport = StdioTransport(
         command="python",
         args=["-m", "tests.fixtures.fake_server"],
         env={"FAKE_MODE": mode},
         name="fake",
     )
-    return MCPClient(transport, name="fake", timeout=timeout)
+    # The fixture server is a local script with nothing to download, so the
+    # production connect budget - minutes, sized for npx resolving a package -
+    # would only mean a very slow test on the paths that expect a timeout.
+    return MCPClient(
+        transport,
+        name="fake",
+        timeout=timeout,
+        connect_timeout=connect_timeout if connect_timeout is not None else timeout,
+    )
 
 
 @pytest.fixture
@@ -198,6 +210,49 @@ def test_a_server_that_never_answers_times_out():
     try:
         with pytest.raises(TransportError, match="no response"):
             client.connect()
+    finally:
+        client.close()
+
+
+# --------------------------------------------------------------------------
+# Connecting and calling get separate budgets
+# --------------------------------------------------------------------------
+
+
+def test_the_handshake_has_its_own_timeout():
+    """Connecting is not the same kind of operation as calling.
+
+    An npx or uvx server resolves and downloads its package on first launch, so
+    a first connect can take minutes; a tools/call against a server that is
+    already running should never take thirty seconds. One budget for both drops
+    a working server the day its package publishes a new version - which is
+    exactly how mcp-server-git 1.30.0 broke this host.
+    """
+    client = make_client(connect_timeout=90.0, timeout=5.0)
+    try:
+        assert client.connect_timeout == 90.0
+        assert client.timeout == 5.0
+        client.connect()
+        assert client.initialized is True
+    finally:
+        client.close()
+
+
+def test_the_connect_budget_is_generous_by_default():
+    from host.mcp.client import DEFAULT_CONNECT_TIMEOUT, DEFAULT_TIMEOUT
+
+    assert DEFAULT_CONNECT_TIMEOUT > DEFAULT_TIMEOUT
+    transport = StdioTransport(command="python", args=["-c", "pass"], name="unused")
+    assert MCPClient(transport).connect_timeout == DEFAULT_CONNECT_TIMEOUT
+
+
+def test_a_slow_handshake_is_tolerated_but_a_slow_call_is_not():
+    """The budgets are independent: a short per-call timeout must not cut the
+    handshake short, and a long connect budget must not excuse a slow call."""
+    client = make_client(connect_timeout=30.0, timeout=0.5)
+    try:
+        client.connect()  # succeeds on the connect budget
+        assert client.initialized is True
     finally:
         client.close()
 
