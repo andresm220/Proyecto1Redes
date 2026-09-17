@@ -7,6 +7,8 @@ is wrong rather than the logic.
 
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 import pytest
 
 from host.mcp import jsonrpc
@@ -210,17 +212,24 @@ def test_a_full_support_workflow(client):
             },
         )
     )
+    # Computed, not hardcoded. Everywhere else in the suite the store's clock
+    # is frozen at FIXED_NOW, so a literal date is safe; here the server runs
+    # as a real subprocess on the real clock, and schedule_visit refuses a date
+    # in the past. A literal would pass until that day arrived and fail every
+    # run after it - which is exactly what happened to "2026-09-01".
+    appointment = (date.today() + timedelta(days=7)).isoformat()
     visit = read_payload(
         client.call_tool(
             "schedule_visit",
             {
                 "ticket_id": ticket["ticket_id"],
-                "date": "2026-09-01",
+                "date": appointment,
                 "time_window": "12:00-16:00",
             },
         )
     )
     assert visit["status"] == "scheduled"
+    assert visit["date"] == appointment
 
     final = read_payload(client.call_tool("get_ticket", {"ticket_id": ticket["ticket_id"]}))
     assert final["status"] == "scheduled"
