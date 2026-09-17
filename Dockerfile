@@ -30,4 +30,9 @@ ENV PORT=8080
 EXPOSE 8080
 
 # Shell form, so ${PORT} is expanded at start-up rather than taken literally.
+#
+# Docker's linter warns that shell form can swallow OS signals. `exec` is what
+# answers it: the shell replaces itself with uvicorn, so uvicorn runs as PID 1
+# and SIGTERM reaches it directly. Verified - `docker stop` returns in ~2s with
+# "Application shutdown complete" in the log, not after the 10s kill timeout.
 CMD exec uvicorn servers.netops.http_server:app --host 0.0.0.0 --port ${PORT}
