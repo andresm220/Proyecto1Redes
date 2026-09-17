@@ -121,6 +121,7 @@ python -m host.main
 
 | Option | Effect |
 |---|---|
+| `--plain` | Scrolling transcript instead of the full-screen dashboard |
 | `--config PATH` | Server declarations to load (default: `config/servers.json`) |
 | `--log-dir PATH` | Where to write the JSONL session log (default: `logs/`) |
 | `-v`, `--verbose` | Show the live JSON-RPC trace (the default) |
@@ -148,6 +149,75 @@ servers' tools to answer. Tools are namespaced as `<server>__<tool>`, so
 on the `netops` server.
 
 The assistant needs a configured model backend; `/call` does not.
+
+## The interface
+
+The host runs a full-screen dashboard when it has a real terminal, and falls
+back to a scrolling transcript when it does not — piped input has no terminal
+to put into raw mode, which is how the CLI is driven by scripts and by the test
+suite. `--plain` forces the fallback.
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ uvg-mcp-host  MCP 2025-11-25  openai/gpt-oss-120b@groq  * netops__run_diag…  │
+└──────────────────────────────────────────────────────────────────────────────┘
+┌────── servers ───────┐┌──────────────────── conversation ───────────────────┐
+│ +  netops  stdio     ││ > Revisá el estado del servicio de GT-10233          │
+│ +  filesystem  stdio ││     calling netops-remote__check_service_status      │
+│ +  git  stdio        ││ El enlace está caído por la incidencia OUT-2026-013. │
+│ +  netops-remote http││                                                     │
+│ 4/4 up   40 tools    ││                                                     │
+└──────────────────────┘└─────────────────────────────────────────────────────┘
+┌───────────────────────── MCP log  (20 messages) ─────────────────────────────┐
+│ -> netops-remote  http  request      initialize                              │
+│ <- netops-remote  http  response     initialize              310.5 ms        │
+│ <- netops-remote  http  response     tools/list               98.3 ms        │
+└──────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ > /log tail 5_                        F2 log  F3 servers  /help  /quit       │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+`F2` collapses the log panel, `F3` re-reads the server states, and every slash
+command works exactly as it does in `--plain` mode — the dashboard captures
+what the commands print rather than reimplementing them.
+
+### Design rationale
+
+**The layout never comes down.** A live layout and a blocking prompt cannot
+share a terminal, and the usual compromise is to tear the screen down to ask a
+question. Here keystrokes are read one at a time and drawn into the footer as
+part of the same repaint as everything else, so asking a question is not a
+different mode — it is just another frame. That is what lets the header keep
+naming the tool being called while the model works, instead of the screen
+freezing.
+
+**Colour means one thing and never means it alone.** Blue is client → server,
+green is server → client, red is an error, and red outranks direction because a
+failure is what you are scanning for. Every rendering also carries the same
+information in a form that survives losing the colour: `->` and `<-` for
+direction, `+` and `!` for server state, and the message type spelled out in
+its own column. Around 8% of men have a red-green colour vision deficiency —
+exactly the pair this palette leans on hardest — and a printed report is
+monochrome. The redundancy is enforced by tests, not by good intentions.
+
+**Status is named, not spun.** A spinner says something is happening. The
+header says `* netops-remote__run_diagnostic [2/10]`: which tool, on which
+server, and how much of the ten-iteration budget is left.
+
+**Detail on demand.** The trace is the most interesting artifact this project
+produces and the fastest way to make a screen unreadable, so it is one keypress
+away rather than always on. Collapsing it gives the room to the conversation.
+
+**Recognition over recall.** The shortcuts and the server states are on screen
+permanently. Nobody should have to remember that `/log tail 20` exists.
+
+**Errors are prevented before they are reported.** `/call` parses its JSON
+argument before anything reaches the wire, so a typo comes back as a message
+rather than as a `-32700` from the server.
+
+The full write-up, mapped to Nielsen's heuristics and to the Gestalt grouping
+principles, is in `docs/report.md`.
 
 ## The session log
 

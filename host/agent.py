@@ -39,6 +39,15 @@ class Agent:
         self.max_iterations = max_iterations
         self._on_event = on_event
 
+    def set_event_handler(self, handler: EventHandler | None) -> None:
+        """Redirect the turn's progress events.
+
+        The CLI prints them as they scroll past; the dashboard folds them into
+        a panel instead. Which presentation is in use is not the loop's
+        business, so it is swapped here rather than branched on inside it.
+        """
+        self._on_event = handler
+
     def _emit(self, kind: str, **payload: Any) -> None:
         if self._on_event is not None:
             self._on_event(kind, payload)

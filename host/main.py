@@ -69,6 +69,7 @@ HELP_ROWS = [
     ("/history", "Show the conversation turn by turn"),
     ("/save <file>", "Write the conversation to a JSON file"),
     ("/reset", "Forget the conversation so far"),
+    ("F2 / F3", "Collapse the log panel / refresh the server states (dashboard only)"),
     ("/help", "Show this table"),
     ("/quit", "Close every server and exit"),
 ]
@@ -92,9 +93,18 @@ def event_colour(event: LogEvent) -> str:
 class Cli:
     """Holds the CLI's mutable state so the command handlers stay small."""
 
-    def __init__(self, config: HostConfig, logger: McpLogger, verbose: bool = True) -> None:
+    def __init__(
+        self,
+        config: HostConfig,
+        logger: McpLogger,
+        verbose: bool = True,
+        console: Console | None = None,
+    ) -> None:
         self.config = config
         self.logger = logger
+        # Injectable so the dashboard can capture what the commands print
+        # instead of letting it scroll past the layout.
+        self.console = console or globals()["console"]
         self.verbose = verbose  # the protocol trace is a deliverable, so start on
         self.registry = ServerRegistry(
             config.servers,
@@ -126,14 +136,14 @@ class Cli:
             COLOUR_OUT if direction == "send" else COLOUR_IN
         )
         payload = escape(jsonrpc.encode(message))
-        console.print(
+        self.console.print(
             f"[dim]{arrow} {escape(server)}[/dim] [{colour}]{payload}[/{colour}]",
             highlight=False,
             soft_wrap=True,
         )
 
     def log_stderr(self, server: str, text: str) -> None:
-        console.print(
+        self.console.print(
             f"[dim yellow]{escape(f'[{server} stderr]')}[/dim yellow] {escape(text)}",
             highlight=False,
             soft_wrap=True,
@@ -147,7 +157,7 @@ class Cli:
         table.add_column("Description")
         for command, description in HELP_ROWS:
             table.add_row(command, description)
-        console.print(table)
+        self.console.print(table)
 
     def print_servers(self) -> None:
         table = Table(title="Servers")
@@ -167,11 +177,11 @@ class Cli:
                 state = "[red]failed[/red]"
                 detail = escape(self.registry.failures.get(name, "not connected"))
             table.add_row(name, config.transport, launch, state, detail)
-        console.print(table)
+        self.console.print(table)
 
     def print_tools(self) -> None:
         if not len(self.registry):
-            console.print("[yellow]No tools available - no server is connected.[/yellow]")
+            self.console.print("[yellow]No tools available - no server is connected.[/yellow]")
             return
         table = Table(title=f"Tools ({len(self.registry)})")
         table.add_column("Qualified name", style="bold cyan", no_wrap=True)
@@ -180,7 +190,7 @@ class Cli:
         for tool in sorted(self.registry, key=lambda t: t.qualified_name):
             required = ", ".join(tool.input_schema.get("required", [])) or "-"
             table.add_row(tool.qualified_name, escape(required), escape(tool.description))
-        console.print(table)
+        self.console.print(table)
 
     def call_tool(self, argument: str) -> None:
         parts = argument.split(maxsplit=1)
@@ -190,23 +200,23 @@ class Cli:
         try:
             arguments = json.loads(raw_arguments or "{}")
         except json.JSONDecodeError as exc:
-            console.print(f"[red]Arguments are not valid JSON:[/red] {exc}")
+            self.console.print(f"[red]Arguments are not valid JSON:[/red] {exc}")
             return
         if not isinstance(arguments, dict):
-            console.print("[red]Arguments must be a JSON object.[/red]")
+            self.console.print("[red]Arguments must be a JSON object.[/red]")
             return
 
         try:
             result = self.registry.call(name, arguments)
         except ToolNotFoundError as exc:
-            console.print(f"[red]{escape(str(exc))}[/red]")
+            self.console.print(f"[red]{escape(str(exc))}[/red]")
             return
         except McpError as exc:
             # A protocol-level failure: the exchange itself was rejected.
-            console.print(f"[red]Protocol error {exc.code}:[/red] {escape(exc.message)}")
+            self.console.print(f"[red]Protocol error {exc.code}:[/red] {escape(exc.message)}")
             return
         except TransportError as exc:
-            console.print(f"[red]Transport error:[/red] {escape(str(exc))}")
+            self.console.print(f"[red]Transport error:[/red] {escape(str(exc))}")
             return
 
         self.print_tool_result(result)
@@ -214,14 +224,14 @@ class Cli:
     def print_tool_result(self, result: dict[str, Any]) -> None:
         # isError marks a domain failure inside a successful exchange.
         if result.get("isError"):
-            console.print("[yellow]Tool reported an error:[/yellow]")
+            self.console.print("[yellow]Tool reported an error:[/yellow]")
         for block in result.get("content", []):
             # Escaped: tool output is data, not markup. A ticket description
             # containing brackets must render verbatim.
             if block.get("type") == "text":
-                console.print(escape(block.get("text", "")), highlight=False)
+                self.console.print(escape(block.get("text", "")), highlight=False)
             else:
-                console.print(escape(json.dumps(block, ensure_ascii=False, indent=2)))
+                self.console.print(escape(json.dumps(block, ensure_ascii=False, indent=2)))
 
     # -- the session log ---------------------------------------------------
 
@@ -232,20 +242,20 @@ class Cli:
             self.print_log_info()
             return
         if parts[0] != "tail":
-            console.print("[red]Usage: /log  |  /log tail <n>[/red]")
+            self.console.print("[red]Usage: /log  |  /log tail <n>[/red]")
             return
         count = DEFAULT_TAIL
         if len(parts) > 1:
             try:
                 count = int(parts[1])
             except ValueError:
-                console.print(f"[red]Not a number: {escape(parts[1])}[/red]")
+                self.console.print(f"[red]Not a number: {escape(parts[1])}[/red]")
                 return
         self.print_log_tail(count)
 
     def print_log_info(self) -> None:
-        console.print(f"Session log: [cyan]{escape(str(self.logger.path))}[/cyan]")
-        console.print(
+        self.console.print(f"Session log: [cyan]{escape(str(self.logger.path))}[/cyan]")
+        self.console.print(
             f"{len(self.logger)} message(s) buffered, live trace "
             f"{'on' if self.verbose else 'off'}. Try [bold]/log tail 20[/bold]."
         )
@@ -253,7 +263,7 @@ class Cli:
     def print_log_tail(self, count: int) -> None:
         events = self.logger.tail(count)
         if not events:
-            console.print("[yellow]Nothing logged yet.[/yellow]")
+            self.console.print("[yellow]Nothing logged yet.[/yellow]")
             return
         table = Table(title=f"Last {len(events)} MCP message(s)")
         table.add_column("Time", style="dim", no_wrap=True)
@@ -275,13 +285,13 @@ class Cli:
                 "" if event.id is None else str(event.id),
                 duration,
             )
-        console.print(table)
+        self.console.print(table)
 
     # -- conversation ------------------------------------------------------
 
     def print_history(self) -> None:
         if self.session is None or not len(self.session):
-            console.print("[yellow]No conversation yet.[/yellow]")
+            self.console.print("[yellow]No conversation yet.[/yellow]")
             return
         table = Table(title=f"Conversation ({len(self.session)} turn(s))")
         table.add_column("#", justify="right", style="dim", no_wrap=True)
@@ -289,15 +299,15 @@ class Cli:
         table.add_column("Content")
         for index, (role, summary) in enumerate(self.session.outline(), start=1):
             table.add_row(str(index), role, escape(summary))
-        console.print(table)
+        self.console.print(table)
 
     def save_history(self, argument: str) -> None:
         path_text = argument.strip().strip('"')
         if not path_text:
-            console.print("[red]Usage: /save <file>[/red]")
+            self.console.print("[red]Usage: /save <file>[/red]")
             return
         if self.session is None or not len(self.session):
-            console.print("[yellow]Nothing to save - the conversation is empty.[/yellow]")
+            self.console.print("[yellow]Nothing to save - the conversation is empty.[/yellow]")
             return
         path = Path(path_text)
         document = {
@@ -313,9 +323,9 @@ class Cli:
                 json.dumps(document, ensure_ascii=False, indent=2), encoding="utf-8"
             )
         except OSError as exc:
-            console.print(f"[red]Could not write {escape(str(path))}:[/red] {escape(str(exc))}")
+            self.console.print(f"[red]Could not write {escape(str(path))}:[/red] {escape(str(exc))}")
             return
-        console.print(f"Saved {len(self.session)} turn(s) to [cyan]{escape(str(path))}[/cyan].")
+        self.console.print(f"Saved {len(self.session)} turn(s) to [cyan]{escape(str(path))}[/cyan].")
 
     # -- the agentic loop --------------------------------------------------
 
@@ -331,7 +341,7 @@ class Cli:
                 api_key=llm.api_key or "",
                 model=llm.model,
                 base_url=llm.base_url or "",
-                on_retry=lambda delay, reason: console.print(
+                on_retry=lambda delay, reason: self.console.print(
                     f"[yellow]  {escape(reason)}[/yellow]"
                 ),
             )
@@ -355,16 +365,16 @@ class Cli:
     def on_agent_event(self, kind: str, payload: dict[str, Any]) -> None:
         if kind == "tool_call":
             arguments = json.dumps(payload["arguments"], ensure_ascii=False)
-            console.print(
+            self.console.print(
                 f"[dim]  calling[/dim] [bold]{escape(payload['name'])}[/bold] "
                 f"[dim]{escape(arguments)}[/dim]",
                 highlight=False,
                 soft_wrap=True,
             )
         elif kind == "tool_result" and payload["is_error"]:
-            console.print(f"[yellow]  tool reported an error[/yellow]", highlight=False)
+            self.console.print(f"[yellow]  tool reported an error[/yellow]", highlight=False)
         elif kind == "max_iterations":
-            console.print(
+            self.console.print(
                 f"[yellow]  stopped at the {payload['limit']}-iteration cap[/yellow]"
             )
 
@@ -372,23 +382,23 @@ class Cli:
         if self.agent is None:
             reason = self.config.llm.why_unusable()
             if reason:
-                console.print(
+                self.console.print(
                     f"[yellow]Assistant disabled: {escape(reason)}. Copy .env.example to .env "
                     "and configure a provider, or use /call to invoke tools directly.[/yellow]"
                 )
             else:
-                console.print("[yellow]No server is connected, so there are no tools.[/yellow]")
+                self.console.print("[yellow]No server is connected, so there are no tools.[/yellow]")
             return
         try:
             answer = self.agent.run_turn(question)
         except LLMError as exc:
-            console.print(f"[red]{escape(str(exc))}[/red]")
+            self.console.print(f"[red]{escape(str(exc))}[/red]")
             return
         except Exception as exc:  # noqa: BLE001 - one bad turn must not end the session
-            console.print(f"[red]{type(exc).__name__}:[/red] {escape(str(exc))}")
+            self.console.print(f"[red]{type(exc).__name__}:[/red] {escape(str(exc))}")
             return
         if answer:
-            console.print(escape(answer), highlight=False)
+            self.console.print(escape(answer), highlight=False)
 
     def handle_command(self, line: str) -> bool:
         parts = line.split(maxsplit=1)
@@ -405,14 +415,14 @@ class Cli:
             self.print_tools()
         elif command == "/verbose":
             self.verbose = not self.verbose
-            console.print(f"JSON-RPC trace {'on' if self.verbose else 'off'}.")
+            self.console.print(f"JSON-RPC trace {'on' if self.verbose else 'off'}.")
         elif command == "/reset":
             if self.session is not None:
                 self.session.clear()
-            console.print("Conversation cleared.")
+            self.console.print("Conversation cleared.")
         elif command == "/call":
             if not argument:
-                console.print("[red]Usage: /call <tool> <json-arguments>[/red]")
+                self.console.print("[red]Usage: /call <tool> <json-arguments>[/red]")
             else:
                 self.call_tool(argument)
         elif command == "/log":
@@ -422,33 +432,33 @@ class Cli:
         elif command == "/save":
             self.save_history(argument)
         else:
-            console.print(f"[red]Unknown command: {command}[/red]  (try /help)")
+            self.console.print(f"[red]Unknown command: {command}[/red]  (try /help)")
         return True
 
     # -- loop --------------------------------------------------------------
 
     def run(self) -> int:
-        console.print(f"[bold]{BANNER}[/bold]")
+        self.console.print(f"[bold]{BANNER}[/bold]")
         self.registry.connect_all()
         self.build_agent()
 
         connected = len(self.registry.clients)
-        console.print(
+        self.console.print(
             f"Connected to {connected}/{len(self.config.servers)} server(s), "
             f"{len(self.registry)} tool(s) available."
         )
-        console.print(f"[dim]Logging every MCP message to {escape(str(self.logger.path))}[/dim]")
+        self.console.print(f"[dim]Logging every MCP message to {escape(str(self.logger.path))}[/dim]")
         for name, reason in self.registry.failures.items():
-            console.print(f"[red]{escape(name)}: {escape(reason)}[/red]")
+            self.console.print(f"[red]{escape(name)}: {escape(reason)}[/red]")
         llm = self.config.llm
         if self.agent is not None:
-            console.print(
+            self.console.print(
                 f"Model [cyan]{escape(llm.model)}[/cyan] via "
                 f"[cyan]{escape(llm.provider)}[/cyan] ready. "
                 "Ask a question, or use /call to invoke a tool directly."
             )
         elif not llm.is_usable:
-            console.print(
+            self.console.print(
                 f"[yellow]Assistant disabled: {escape(llm.why_unusable())}. "
                 "See .env.example. /call works without it.[/yellow]"
             )
@@ -457,9 +467,9 @@ class Cli:
             try:
                 # Strip a leading BOM: piping commands in on Windows prepends one,
                 # which would otherwise hide the '/' and misroute the first command.
-                line = console.input("[bold green]> [/bold green]").lstrip("\ufeff").strip()
+                line = self.console.input("[bold green]> [/bold green]").lstrip("\ufeff").strip()
             except (EOFError, KeyboardInterrupt):
-                console.print()
+                self.console.print()
                 break
             if not line:
                 continue
@@ -487,6 +497,11 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help="where to write the JSONL session log (default: logs/)",
     )
+    parser.add_argument(
+        "--plain",
+        action="store_true",
+        help="scrolling transcript instead of the full-screen dashboard",
+    )
     trace = parser.add_mutually_exclusive_group()
     trace.add_argument(
         "-v",
@@ -501,6 +516,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="start with the live trace off; the file log is written either way",
     )
     return parser
+
+
+def use_dashboard(args: argparse.Namespace) -> bool:
+    """Whether to run the full-screen dashboard.
+
+    It needs a real terminal: raw key reading has nothing to put into raw mode
+    when stdin is a pipe, which is how the CLI is driven by scripts and by the
+    test suite. Falling back is not a degraded mode, it is the only mode that
+    works there.
+    """
+    if getattr(args, "plain", False):
+        return False
+    try:
+        return sys.stdin.isatty() and sys.stdout.isatty()
+    except (AttributeError, ValueError):
+        return False
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -520,6 +551,12 @@ def main(argv: list[str] | None = None) -> int:
 
     cli = Cli(config, logger, verbose=not args.quiet)
     try:
+        if use_dashboard(args):
+            from host.ui.app import run_dashboard
+
+            cli.registry.connect_all()
+            cli.build_agent()
+            return run_dashboard(cli)
         return cli.run()
     finally:
         # Order matters: the servers have to stop tracing before the log
