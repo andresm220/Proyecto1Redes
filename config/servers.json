@@ -17,6 +17,10 @@
       "command": "uvx",
       "args": ["mcp-server-git", "--repository", "./workspace/demo-repo"],
       "env": {}
+    },
+    "netops-remote": {
+      "transport": "http",
+      "url": "https://netops-mcp-261683462697.us-central1.run.app/mcp"
     }
   }
 }

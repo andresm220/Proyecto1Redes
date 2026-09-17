@@ -258,23 +258,15 @@ third-party packages, so a system Python works; point `command` at
 Together they expose 33 tools, namespaced `<server>__<tool>` so two servers can
 use the same tool name without colliding.
 
-A fourth entry connects the same `netops` server over HTTP, local or remote:
+A fourth entry connects the same `netops` server over HTTP. It is deployed to
+Cloud Run and live:
 
-```json
-{
-  "mcpServers": {
-    "netops-remote": {
-      "transport": "http",
-      "url": "https://<service>-<hash>-uc.a.run.app/mcp"
-    }
-  }
-}
+| Alias | Transport | Origin | What it is |
+|---|---|---|---|
+| `netops-remote` | http | ours | the same server, on Cloud Run |
+
 ```
-
-Run it locally first to see the mechanism without deploying anything:
-
-```bash
-uvicorn servers.netops.http_server:app --port 8080
+https://netops-mcp-261683462697.us-central1.run.app/mcp
 ```
 
 ```
@@ -283,14 +275,36 @@ Connected to 4/4 server(s), 40 tool(s) available.
 │ netops        │ stdio │ python -m servers.netops.stdio_server │ connected │
 │ filesystem    │ stdio │ npx -y @modelcontextprotocol/…        │ connected │
 │ git           │ stdio │ uvx mcp-server-git --repository …     │ connected │
-│ netops-remote │ http  │ http://127.0.0.1:8080/mcp             │ connected │
+│ netops-remote │ http  │ https://netops-mcp-…run.app/mcp       │ connected │
 ```
 
-`docs/mixed-transport-session.jsonl` is one such session: four servers, two
-transports, every message tagged with the one that carried it. The handshake
-durations in it are worth a look — the remote server answers `initialize` in
-14 ms while the local ones take 125 ms to 3.6 s, because stdio pays to spawn a
-process and HTTP only pays for a socket round trip to one already running.
+To try the HTTP transport without touching the cloud, run the adapter locally
+and point the URL at `http://127.0.0.1:8080/mcp`:
+
+```bash
+uvicorn servers.netops.http_server:app --port 8080
+```
+
+### What the timings show
+
+`docs/cloud-run-session.jsonl` is one session across all four servers and both
+transports, every message tagged with the one that carried it:
+
+```
+netops         stdio  initialize    353.3 ms
+filesystem     stdio  initialize   9195.7 ms      npx resolving its package
+git            stdio  initialize   6435.0 ms      uvx resolving its package
+netops-remote  http   initialize   2727.9 ms      Cloud Run cold start
+netops-remote  http   tools/list     97.6 ms      steady state, over the internet
+netops-remote  http   tools/call     98.3 ms
+```
+
+The remote server's *cold start* is faster than launching the local `npx` one.
+stdio pays to spawn a process and, for `npx` and `uvx`, to resolve a package;
+HTTP pays one round trip to a container the platform brings up. Once warm, a
+call across the internet costs about 98 ms against roughly 1 ms over a pipe —
+which is the honest trade, and the reason the transport is a choice rather than
+a detail.
 
 Windows needs `npx` to run through the command interpreter, because it ships as
 `npx.cmd` and `CreateProcess` does not consult `PATHEXT`. That wrapper lives in
@@ -313,9 +327,26 @@ git -C workspace/demo-repo init
 - `docs/demo-filesystem-git.md` — the Filesystem + Git scenario: one turn that
   writes a file, stages it and commits it, with the session log alongside it
 - `docs/mixed-transport-session.jsonl` — one session across four servers and
-  both transports
+  both transports, with the HTTP server running locally
+- `docs/cloud-run-session.jsonl` — the same, with the HTTP server on Cloud Run
 - `Dockerfile` — builds the HTTP adapter; `servers/netops/SPEC.md` §7.9 covers
   the container and the Cloud Run deployment
+
+## Verifying it
+
+`tools/conformance_check.py` is a deliberately foreign client: standard library
+only, importing nothing from `host/`, so a bug in our own encoder cannot cancel
+itself out. The same 19 checks run against either transport:
+
+```bash
+python tools/conformance_check.py                       # stdio
+python tools/conformance_check.py --http http://localhost:8080/mcp
+python tools/conformance_check.py --http https://netops-mcp-261683462697.us-central1.run.app/mcp
+```
+
+All three pass 19/19 — local subprocess, local container, and Cloud Run. That
+is what makes "the same server, deployed remotely" an observation rather than a
+claim about the source tree.
 - `docs/reporte-avance.pdf` — the partial-delivery report submitted for the
   course, in Spanish, with its evidence screenshots under `docs/img/`
 

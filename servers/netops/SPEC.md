@@ -801,11 +801,39 @@ copy.
 Deploying to Cloud Run:
 
 ```bash
-gcloud run deploy netops-mcp   --source .   --region us-central1   --allow-unauthenticated   --port 8080
+gcloud run deploy netops-mcp \
+    --source . \
+    --region us-central1 \
+    --allow-unauthenticated \
+    --port 8080
 ```
 
 `--source` hands the repository to Cloud Build, so no image has to be pushed by
 hand. `PORT` is injected by the platform and the container's `CMD` expands it.
+
+**The live deployment:**
+
+```
+https://netops-mcp-261683462697.us-central1.run.app
+```
+
+```bash
+$ curl https://netops-mcp-261683462697.us-central1.run.app/health
+{"status":"ok","server":"netops","version":"1.0.0","protocolVersion":"2025-11-25",
+ "transport":"streamable-http","tools":7,"sessions":0}
+
+$ python tools/conformance_check.py \
+    --http https://netops-mcp-261683462697.us-central1.run.app/mcp
+19 passed, 0 failed
+```
+
+The same 19 checks pass three ways: over stdio against a local subprocess,
+over HTTP against the local container, and over HTTPS against Cloud Run. The
+client doing the checking is the same foreign client in every case.
+
+A cold start costs about 2.7 s on the `initialize` — the platform has scaled
+the instance to zero and has to bring one up. Once warm, a `tools/call` across
+the internet lands in roughly 98 ms, against about 1 ms over a local pipe.
 
 Then point the host at it by adding one entry to `config/servers.json`:
 
