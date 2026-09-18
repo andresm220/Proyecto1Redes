@@ -21,6 +21,14 @@ htmlcov/
 # Server runtime state (seed data IS versioned; mutable state is not)
 servers/netops/data/state.json
 
+# Intermediate conversions. The report is versioned as markdown (the
+# source) and as the PDF that was submitted; the .docx in between is a
+# build artifact and would only drift from the markdown.
+docs/report.docx
+
+# Saved conversations from /save
+demo.json
+
 # Session logs. Every run writes one; a curated sample is versioned
 # under docs/ as evidence instead of committing every run.
 logs/
