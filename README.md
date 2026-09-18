@@ -58,33 +58,80 @@ requirement 4 asks for, and no MCP SDK enters this project either way.
 
 ## Setup
 
-The project uses a standard virtual environment. From the repository root:
+From nothing to a running chatbot. Every step, in order.
 
 ```powershell
 # Windows / PowerShell
+git clone https://github.com/andresm220/Proyecto1Redes.git
+cd Proyecto1Redes
+
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+pip install uv                      # provides uvx, for the official Git server
+
+copy .env.example .env              # then open it and add your API key
+
+mkdir workspace\demo-repo           # the official servers need somewhere to work
+git -C workspace\demo-repo init
 ```
 
 ```bash
 # Linux / macOS
+git clone https://github.com/andresm220/Proyecto1Redes.git
+cd Proyecto1Redes
+
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+pip install uv
+
+cp .env.example .env                # then open it and add your API key
+
+mkdir -p workspace/demo-repo
+git -C workspace/demo-repo init
 ```
 
 If you prefer conda, `conda create -n mcp-proj python=3.11` followed by the same
 `pip install -r requirements.txt` works identically.
 
-Then copy the environment template and add your key:
+**The workspace step is not optional.** The Filesystem server is rooted at
+`./workspace` and the Git server operates on `./workspace/demo-repo`; without
+them, those two servers fail to start and the host connects 2/4 instead of 4/4.
+
+**`.env`** is git-ignored and never committed. A key is only needed for the
+agentic loop — `/call` invokes tools directly and works without one. See
+[Choosing a model backend](#choosing-a-model-backend) for which variables each
+provider reads.
+
+### Check that it worked
+
+```bash
+python tools/conformance_check.py
+```
 
 ```
-cp .env.example .env       # copy .env.example .env   on Windows
+19 passed, 0 failed
 ```
 
-`.env` is git-ignored and is never committed. A key is only needed for the
-agentic loop; tool calls made with `/call` work without one.
+That launches the `netops` server, completes the handshake, lists the tools,
+calls one, and checks both error paths — without needing an API key or a
+network connection. If it passes, the protocol layer is sound and anything
+that fails afterwards is configuration.
+
+Then start the host:
+
+```bash
+python -m host.main
+```
+
+```
+Connected to 4/4 server(s), 40 tool(s) available.
+```
+
+The first run is slow: `npx` and `uvx` download the two official servers
+before they can start, which takes a few seconds each. Later runs reuse the
+cache.
 
 ## Choosing a model backend
 
@@ -383,12 +430,8 @@ Windows needs `npx` to run through the command interpreter, because it ships as
 Windows, macOS and Linux. `uvx` is a real executable and is deliberately not
 wrapped.
 
-Before the first run, create the workspace the two official servers operate on:
-
-```bash
-mkdir -p workspace/demo-repo
-git -C workspace/demo-repo init
-```
+Both need `./workspace` to exist before they will start; [Setup](#setup)
+creates it.
 
 ## Documentation
 
