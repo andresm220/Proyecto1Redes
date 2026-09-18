@@ -58,9 +58,25 @@ from host.ui import theme
 # starts crowding the conversation out of its own screen.
 LOG_PANEL_ROWS = 8
 SIDEBAR_WIDTH = 26
+HEADER_ROWS = 3
+FOOTER_ROWS = 3
 
 # The conversation panel's own borders (2) and horizontal padding (2).
 CONVERSATION_CHROME = 4
+# Its top and bottom border, in rows.
+CONVERSATION_CHROME_ROWS = 2
+
+
+def conversation_rows(terminal_height: int, show_log: bool) -> int:
+    """How many rows the conversation panel can actually show.
+
+    It has to be computed rather than left to rich, because a panel renders
+    its content from the top and simply loses whatever does not fit. For a log
+    that is fine - you want the beginning of a file. For a conversation it is
+    exactly wrong: the answer you just received is the one that falls off.
+    """
+    used = HEADER_ROWS + FOOTER_ROWS + (LOG_PANEL_ROWS + 2 if show_log else 0)
+    return max(3, terminal_height - used - CONVERSATION_CHROME_ROWS)
 
 
 def conversation_width(terminal_width: int) -> int:
@@ -114,6 +130,10 @@ class DashboardModel:
     show_log: bool = True
     input_buffer: str = ""
     message_count: int = 0
+    # The live terminal size, refreshed by the app. The conversation panel
+    # needs it to work out how much of the transcript it can show.
+    terminal_width: int = 100
+    terminal_height: int = 30
 
     @property
     def tool_count(self) -> int:
@@ -198,6 +218,45 @@ def render_servers(model: DashboardModel) -> Panel:
     )
 
 
+def entry_rows(role: str, text: str, width: int) -> int:
+    """How many terminal rows one transcript entry will occupy.
+
+    An estimate, not a measurement: it assumes rich wraps at the panel width,
+    which is what it does for everything here except the pre-rendered output
+    rows, and those are already cut to that width. Being one row out only
+    shows one entry more or less, which is harmless - being unable to see the
+    newest answer at all is not.
+    """
+    if role == "output":
+        return 1  # rendered at the panel width already, and never wrapped
+    prefix = {"user": 2, "tool": 4, "error": 4}.get(role, 0)
+    span = max(1, width - prefix)
+    lines = max(1, -(-len(text) // span))  # ceil division
+    return lines + 1  # the blank line that separates turns
+
+
+def visible_transcript(model: DashboardModel) -> list[tuple[str, str]]:
+    """The tail of the transcript that fits, newest always included.
+
+    A panel renders from the top and drops the overflow, so an unbounded
+    transcript means the newest answer is the first thing to disappear - which
+    is the opposite of what a conversation needs. The tail is taken here
+    instead, walking backwards until the budget runs out.
+    """
+    budget = conversation_rows(model.terminal_height, model.show_log)
+    width = conversation_width(model.terminal_width)
+
+    kept: list[tuple[str, str]] = []
+    for role, text in reversed(model.transcript):
+        cost = entry_rows(role, text, width)
+        if kept and budget - cost < 0:
+            break
+        budget -= cost
+        kept.append((role, text))
+    kept.reverse()
+    return kept
+
+
 def render_conversation(model: DashboardModel) -> Panel:
     if not model.transcript:
         body: RenderableType = Align.center(
@@ -209,7 +268,7 @@ def render_conversation(model: DashboardModel) -> Panel:
         )
     else:
         blocks: list[RenderableType] = []
-        for role, text in model.transcript:
+        for role, text in visible_transcript(model):
             if role == "user":
                 blocks.append(Text(f"> {text}", style=theme.COLOUR_ACCENT))
             elif role == "tool":

@@ -98,8 +98,15 @@ class DashboardApp:
     # -- rendering ---------------------------------------------------------
 
     def refresh(self) -> None:
-        if self.live is not None:
-            self.live.update(build_layout(self.model))
+        if self.live is None:
+            return
+        # Re-read on every frame rather than once at startup: the terminal can
+        # be resized mid-session, and the conversation panel sizes its tail
+        # from these two numbers.
+        size = self.screen.size
+        self.model.terminal_width = size.width
+        self.model.terminal_height = size.height
+        self.live.update(build_layout(self.model))
 
     def on_log_event(self, event: LogEvent) -> None:
         """Called from the MCPClient reader threads, so it only appends."""

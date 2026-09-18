@@ -436,3 +436,69 @@ def test_a_conversation_turn_is_still_separated_by_a_blank_line(model: Dashboard
     output = draw(render_conversation(model), width=60)
     between = output[output.index("uno"):output.index("dos")]
     assert between.count("\n") >= 2, "turns stay separated"
+
+
+# --------------------------------------------------------------------------
+# The conversation shows its tail, not its head
+# --------------------------------------------------------------------------
+
+
+def test_the_newest_turn_is_always_visible(model: DashboardModel):
+    """The bug this pins down: a panel renders from the top and drops the
+    overflow, so after one long answer every later turn fell off the screen.
+    Asking a second question appeared to do nothing at all."""
+    from host.ui.dashboard import visible_transcript
+
+    model.terminal_width, model.terminal_height = 110, 30
+    model.transcript = [
+        ("user", "pregunta uno"),
+        ("assistant", "X" * 600),
+        ("user", "pregunta dos"),
+        ("assistant", "la respuesta que importa"),
+    ]
+    kept = visible_transcript(model)
+    assert kept[-1] == ("assistant", "la respuesta que importa")
+    assert ("assistant", "X" * 600) not in kept, "the old answer gives way, not the new one"
+
+
+def test_the_newest_entry_survives_even_alone(model: DashboardModel):
+    """A single answer taller than the whole panel must still be shown."""
+    from host.ui.dashboard import visible_transcript
+
+    model.terminal_width, model.terminal_height = 80, 20
+    model.transcript = [("assistant", "Y" * 5000)]
+    assert len(visible_transcript(model)) == 1
+
+
+def test_a_short_conversation_is_shown_whole(model: DashboardModel):
+    from host.ui.dashboard import visible_transcript
+
+    model.terminal_width, model.terminal_height = 110, 40
+    model.transcript = [("user", "hola"), ("assistant", "buenas")]
+    assert visible_transcript(model) == model.transcript
+
+
+def test_collapsing_the_log_makes_room_for_more_conversation():
+    from host.ui.dashboard import conversation_rows
+
+    assert conversation_rows(30, show_log=False) > conversation_rows(30, show_log=True)
+
+
+def test_the_panel_never_asks_for_a_negative_number_of_rows():
+    from host.ui.dashboard import conversation_rows
+
+    assert conversation_rows(4, show_log=True) >= 3
+    assert conversation_rows(1, show_log=True) >= 3
+
+
+def test_the_newest_answer_is_rendered_not_just_selected(model: DashboardModel):
+    """End to end through the panel, which is where the user would see it."""
+    model.terminal_width, model.terminal_height = 110, 30
+    model.transcript = [
+        ("user", "pregunta uno"),
+        ("assistant", "Z" * 600),
+        ("user", "/servers"),
+        ("output", "netops   stdio   connected"),
+    ]
+    output = draw(render_conversation(model), width=80)
+    assert "netops   stdio   connected" in output
