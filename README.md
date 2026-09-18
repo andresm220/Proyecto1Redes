@@ -394,7 +394,17 @@ git -C workspace/demo-repo init
 
 - `docs/report.md` — the course report, in Spanish: the server specification,
   the layer-by-layer capture analysis, the HCI rationale for the interface,
-  and the conclusions
+  and the conclusions. `docs/report.docx` is the same document for submission;
+  regenerate it with:
+
+  ```bash
+  pandoc docs/report.md -o docs/report.docx --toc --toc-depth=3 \
+      -M title="Proyecto 1 — Chatbot anfitrión con Model Context Protocol" \
+      -M author="Andrés Mazariegos" -M lang=es
+  ```
+
+  The ASCII diagrams run to 78 columns, which overflows the text column at the
+  default 11pt, so the `Source Code` style is set to 9pt Consolas afterwards.
 - `captures/analysis.md` — the packet captures, message by message
 - `servers/netops/SPEC.md` — the netops server specification: tools, schemas,
   raw request/response examples, and error codes
