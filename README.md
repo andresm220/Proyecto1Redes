@@ -392,6 +392,10 @@ git -C workspace/demo-repo init
 
 ## Documentation
 
+- `docs/report.md` — the course report, in Spanish: the server specification,
+  the layer-by-layer capture analysis, the HCI rationale for the interface,
+  and the conclusions
+- `captures/analysis.md` — the packet captures, message by message
 - `servers/netops/SPEC.md` — the netops server specification: tools, schemas,
   raw request/response examples, and error codes
 - `docs/demo-filesystem-git.md` — the Filesystem + Git scenario: one turn that
